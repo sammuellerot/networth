@@ -419,27 +419,35 @@ function renderDash(){
     const catCur=rows.reduce((s,r)=>s+r.last,0),catFirst=rows.reduce((s,r)=>s+r.first,0);
     const catChg=catCur-catFirst,catPct=catFirst?(catChg/catFirst*100):0;
 
-    html+=`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+    html+=`<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap">
       <button onclick="selectCat(null)" style="padding:4px 12px;font-size:12px;border-radius:6px;cursor:pointer;font-family:inherit;border:1px solid var(--border2);background:transparent;color:var(--text2)">← All categories</button>
       <span style="font-size:16px;font-weight:600">${esc(selectedCat)}</span>
       ${catChg!==0?`<span style="font-size:13px;font-family:var(--mono);color:${catChg>=0?'var(--green)':'var(--red)'}">${fmtD(catChg)} (${catChg>=0?'+':''}${catPct.toFixed(1)}%)</span>`:''}
     </div>
+
     <div class="section-label" style="margin-top:0">${esc(selectedCat)} over time</div>
     ${filterUI()}
     <div class="chart-wrap" style="height:220px"><canvas id="dashLineChart" role="img" aria-label="${esc(selectedCat)} over time">${esc(selectedCat)} over time.</canvas></div>
-    <div class="section-label" style="margin-top:24px">Accounts in ${esc(selectedCat)}</div>
+
+    <div class="section-label" style="margin-top:24px">Accounts breakdown</div>
+    <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+      <div style="position:relative;width:150px;height:150px;flex-shrink:0"><canvas id="catPieChart" role="img" aria-label="${esc(selectedCat)} accounts pie">Accounts breakdown.</canvas></div>
+      <div id="cat-pie-legend" style="flex:1;min-width:120px"></div>
+    </div>
+
     <div style="border:1px solid var(--border);border-radius:var(--radius);overflow:hidden">
-      <div style="display:grid;grid-template-columns:1fr repeat(3,auto);background:var(--bg2);padding:6px 14px;gap:12px">
-        <span style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em">Account</span>
-        <span style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;text-align:right">Current</span>
-        <span style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;text-align:right">Change $</span>
-        <span style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;text-align:right">Change %</span>
+      <div style="display:grid;grid-template-columns:1fr 90px 90px 72px;background:var(--bg2);padding:5px 12px;gap:8px;border-bottom:1px solid var(--border)">
+        <span style="font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em">Account</span>
+        <span style="font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;text-align:right">Current</span>
+        <span style="font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;text-align:right">Change $</span>
+        <span style="font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;text-align:right">Chg %</span>
       </div>
-      ${rows.map((r,i)=>`<div style="display:grid;grid-template-columns:1fr repeat(3,auto);padding:9px 14px;gap:12px;background:var(--bg);${i>0?'border-top:1px solid var(--border)':''}">
-        <span style="font-size:13px">${esc(r.name)}</span>
-        <span style="font-size:13px;font-family:var(--mono);text-align:right">${fmt(r.last)}</span>
-        <span style="font-size:13px;font-family:var(--mono);text-align:right;color:${r.chg===0?'var(--text2)':r.chg>0?'var(--green)':'var(--red)'}">${r.chg===0?'—':fmtD(r.chg)}</span>
-        <span style="font-size:13px;font-family:var(--mono);text-align:right;color:${r.chg===0?'var(--text2)':r.pct>0?'var(--green)':'var(--red)'}">${r.chg===0?'—':(r.pct>=0?'+':'')+r.pct.toFixed(1)+'%'}</span>
+      ${rows.map((r,i)=>`
+      <div style="display:grid;grid-template-columns:1fr 90px 90px 72px;padding:7px 12px;gap:8px;align-items:center;background:var(--bg);${i>0?'border-top:1px solid var(--border)':''}">
+        <span style="font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.name)}</span>
+        <span style="font-size:12px;font-family:var(--mono);text-align:right;color:var(--text)">${fmt(r.last)}</span>
+        <span style="font-size:12px;font-family:var(--mono);text-align:right;color:${r.chg===0?'var(--text2)':r.chg>0?'var(--green)':'var(--red)'}">${r.chg===0?'—':fmtD(r.chg)}</span>
+        <span style="font-size:12px;font-family:var(--mono);text-align:right;color:${r.chg===0?'var(--text2)':r.pct>0?'var(--green)':'var(--red)'}">${r.chg===0?'—':(r.pct>=0?'+':'')+r.pct.toFixed(1)+'%'}</span>
       </div>`).join('')}
     </div>`;
 
@@ -660,6 +668,45 @@ function renderDashCharts(){
       }
     }
   }
+
+  // Category drilldown pie (accounts within selected category)
+  const catPieCtx=$('catPieChart');
+  if(catPieCtx&&selectedCat!==null){
+    const PIE_COLORS2=['#1D9E75','#378ADD','#E24B4A','#EF9F27','#D4537E','#7F77DD','#639922','#BA7517','#5dcaa5'];
+    const fe=getFilteredEntries();
+    const lastFe=fe.length?fe[fe.length-1]:null;
+    if(lastFe){
+      const accs=activeAccounts().filter(a=>a.cat===selectedCat);
+      const catData=accs.map(a=>({name:a.name,val:lastFe.values[a.name]||0})).filter(d=>d.val>0);
+      const catTotal=catData.reduce((s,d)=>s+d.val,0);
+      if(catData.length&&catTotal){
+        let catPieInst=Chart.getChart(catPieCtx);
+        if(catPieInst){catPieInst.destroy();}
+        new Chart(catPieCtx,{
+          type:'doughnut',
+          data:{
+            labels:catData.map(d=>d.name),
+            datasets:[{data:catData.map(d=>d.val),backgroundColor:PIE_COLORS2.slice(0,catData.length),borderWidth:2,borderColor:dark?'#1c1c1e':'#ffffff'}]
+          },
+          options:{responsive:true,maintainAspectRatio:false,cutout:'55%',plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`${fmt(c.raw)}  (${Math.round(c.raw/catTotal*1000)/10}%)`}}}}
+        });
+        const catLeg=$('cat-pie-legend');
+        if(catLeg){
+          catLeg.innerHTML=catData.map((d,i)=>`
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:8px">
+              <div style="display:flex;align-items:center;gap:6px;min-width:0">
+                <span style="width:9px;height:9px;border-radius:2px;background:${PIE_COLORS2[i]};flex-shrink:0"></span>
+                <span style="font-size:11px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.name)}</span>
+              </div>
+              <div style="display:flex;gap:6px;flex-shrink:0">
+                <span style="font-size:10px;color:var(--text2);font-family:var(--mono)">${Math.round(d.val/catTotal*1000)/10}%</span>
+                <span style="font-size:11px;font-family:var(--mono);color:var(--text)">${fmt(d.val)}</span>
+              </div>
+            </div>`).join('');
+        }
+      }
+    }
+  }
 }
 
 function renderChart(){}
@@ -667,7 +714,6 @@ function renderEnter(){
   const last=entries.length?entries[entries.length-1]:null;
   const today=new Date().toISOString().split('T')[0];
   const el=$('pane-enter');
-  // fv starts blank — only populated as user types
   if(!Object.keys(fv).length) fv={};
 
   let html=`<div class="entry-bar">
@@ -678,24 +724,29 @@ function renderEnter(){
 
   getCats().forEach(cat=>{
     const accs=activeAccounts().filter(a=>a.cat===cat);
-    if(!accs.length)return;
+    if(!accs.length) return;
     html+=`<div class="section-label">${esc(cat)}</div>
     <div style="border:1px solid var(--border);border-radius:var(--radius);overflow:hidden">
-      <div style="display:grid;grid-template-columns:1fr auto auto;background:var(--bg2);padding:5px 14px;gap:12px;border-bottom:1px solid var(--border)">
-        <span style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em">Account</span>
-        <span style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;text-align:right;white-space:nowrap">Last value</span>
-        <span style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;text-align:right;white-space:nowrap">New value</span>
+      <div style="display:grid;grid-template-columns:1fr 88px 88px 72px;background:var(--bg2);padding:5px 12px;gap:8px;border-bottom:1px solid var(--border)">
+        <span style="font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em">Account</span>
+        <span style="font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;text-align:right">Last</span>
+        <span style="font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;text-align:right">New value</span>
+        <span style="font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;text-align:right">Delta</span>
       </div>`;
     accs.forEach((a,i)=>{
       const id='inp-'+a.name.replace(/[^a-z0-9]/gi,'-');
+      const deltaId='delta-'+a.name.replace(/[^a-z0-9]/gi,'-');
       const lastVal=last?(last.values[a.name]||0):0;
-      html+=`<div style="display:grid;grid-template-columns:1fr auto auto;align-items:center;padding:8px 14px;gap:12px;background:var(--bg);${i<accs.length-1?'border-bottom:1px solid var(--border)':''}">
-        <label for="${id}" style="font-size:13px">${esc(a.name)}</label>
-        <span style="font-size:13px;font-family:var(--mono);color:var(--text2);text-align:right;white-space:nowrap">${lastVal>0?fmt(lastVal):'—'}</span>
-        <div style="display:flex;align-items:center;gap:4px">
-          <span style="font-size:13px;color:var(--text2)">$</span>
-          <input type="number" id="${id}" data-acc="${esc(a.name)}" data-last="${lastVal}" value="" placeholder="0" min="0" step="1" oninput="onInput(this)" style="width:110px;font-size:13px;font-family:var(--mono);text-align:right;padding:4px 8px;background:var(--bg);border:1px solid var(--border2);border-radius:6px;color:var(--text);outline:none"/>
+      html+=`<div id="row-${id}" style="display:grid;grid-template-columns:1fr 88px 88px 72px;align-items:center;padding:7px 12px;gap:8px;background:var(--bg);transition:background .15s;${i<accs.length-1?'border-bottom:1px solid var(--border)':''}">
+        <label for="${id}" style="font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(a.name)}</label>
+        <span style="font-size:12px;font-family:var(--mono);color:var(--text2);text-align:right">${lastVal>0?fmt(lastVal):'—'}</span>
+        <div style="display:flex;align-items:center;gap:3px;justify-content:flex-end">
+          <span style="font-size:12px;color:var(--text2)">$</span>
+          <input type="number" id="${id}" data-acc="${esc(a.name)}" data-last="${lastVal}" data-rowid="row-${id}" data-deltaid="${deltaId}"
+            value="" placeholder="0" min="0" step="1" oninput="onInput(this)"
+            style="width:88px;font-size:12px;font-family:var(--mono);text-align:right;padding:3px 6px;background:var(--bg);border:1px solid var(--border2);border-radius:5px;color:var(--text);outline:none"/>
         </div>
+        <span id="${deltaId}" style="font-size:11px;font-family:var(--mono);text-align:right;color:var(--text2)">—</span>
       </div>`;
     });
     html+=`</div>`;
@@ -1040,12 +1091,37 @@ function addAccount(){
    Shared actions
 ───────────────────────────────────────── */
 function onInput(inp){
-  fv[inp.dataset.acc]=parseFloat(inp.value)||0;
-  const el=$('live-total');
-  if(el){
+  const val=parseFloat(inp.value)||0;
+  fv[inp.dataset.acc]=val;
+
+  // Update running total
+  const totalEl=$('live-total');
+  if(totalEl){
     const all=document.querySelectorAll('#pane-enter input[data-acc]');
     let t=0; all.forEach(i=>{t+=parseFloat(i.value)||0;});
-    el.textContent=fmt(t);
+    totalEl.textContent=fmt(t);
+  }
+
+  // Row highlight — green tint if value entered, neutral if blank
+  const rowEl=inp.dataset.rowid?$(inp.dataset.rowid):null;
+  if(rowEl){
+    const dark=window.matchMedia('(prefers-color-scheme:dark)').matches;
+    rowEl.style.background=val>0?(dark?'rgba(29,158,117,0.08)':'rgba(29,158,117,0.05)'):'var(--bg)';
+  }
+
+  // Delta column
+  const deltaEl=inp.dataset.deltaid?$(inp.dataset.deltaid):null;
+  if(deltaEl){
+    const lastVal=parseFloat(inp.dataset.last)||0;
+    if(val===0||inp.value===''){
+      deltaEl.textContent='—';
+      deltaEl.style.color='var(--text2)';
+    } else {
+      const diff=val-lastVal;
+      const pct=lastVal?Math.round(diff/lastVal*1000)/10:null;
+      deltaEl.textContent=diff===0?'—':(diff>0?'+':'')+fmt(diff)+(pct!==null?` (${pct>0?'+':''}${pct}%)`:'');
+      deltaEl.style.color=diff===0?'var(--text2)':diff>0?'var(--green)':'var(--red)';
+    }
   }
 }
 function saveEntry(){
