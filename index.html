@@ -104,7 +104,7 @@
 
 <div class="tabs">
   <button class="tab active" onclick="switchTab('dashboard')">Dashboard</button>
-  <button class="tab" onclick="switchTab('enter')">Enter values</button>
+  <button class="tab" onclick="switchTab('enter')">Entry</button>
   <button class="tab" onclick="switchTab('history')">History</button>
   <button class="tab" onclick="switchTab('manage')">Manage accounts</button>
 </div>
@@ -160,6 +160,7 @@ let accounts=[], entries=[], currentTab='dashboard', fv={};
 let histChart=null, dashLineChart=null, dashYearChart=null;
 let delEntryConfirm=false, archiveConfirm=null, permDelConfirm=null;
 let dashFilter='all', dashFromDate='', dashToDate='', selectedCat=null;
+let editingEntryIdx=null;
 
 const $=id=>document.getElementById(id);
 const fmt=n=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',minimumFractionDigits:0,maximumFractionDigits:0}).format(n||0);
@@ -444,25 +445,43 @@ function renderDashCharts(){
 
 function renderChart(){}
 function renderEnter(){
-  if(!Object.keys(fv).length)initFV();
-  const total=Object.values(fv).reduce((a,b)=>a+b,0);
+  const last=entries.length?entries[entries.length-1]:null;
   const today=new Date().toISOString().split('T')[0];
   const el=$('pane-enter');
+  // fv starts blank — only populated as user types
+  if(!Object.keys(fv).length) fv={};
+
   let html=`<div class="entry-bar">
     <div class="field"><label>Date</label><input type="date" id="edate" value="${today}"/></div>
-    <div><div class="live-total-label">Running total</div><div class="live-total" id="live-total">${fmt(total)}</div></div>
+    <div><div class="live-total-label">Running total</div><div class="live-total" id="live-total">${fmt(0)}</div></div>
     <div style="margin-left:auto;align-self:flex-end"><button class="primary" onclick="saveEntry()">Save entry</button></div>
   </div>`;
+
   getCats().forEach(cat=>{
     const accs=activeAccounts().filter(a=>a.cat===cat);
     if(!accs.length)return;
-    html+=`<div class="section-label">${esc(cat)}</div><div class="list">`;
-    accs.forEach(a=>{
+    html+=`<div class="section-label">${esc(cat)}</div>
+    <div style="border:1px solid var(--border);border-radius:var(--radius);overflow:hidden">
+      <div style="display:grid;grid-template-columns:1fr auto auto;background:var(--bg2);padding:5px 14px;gap:12px;border-bottom:1px solid var(--border)">
+        <span style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em">Account</span>
+        <span style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;text-align:right;white-space:nowrap">Last value</span>
+        <span style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;text-align:right;white-space:nowrap">New value</span>
+      </div>`;
+    accs.forEach((a,i)=>{
       const id='inp-'+a.name.replace(/[^a-z0-9]/gi,'-');
-      html+=`<div class="list-row"><label for="${id}" style="font-size:13px">${esc(a.name)}</label><div class="row-right"><span style="font-size:13px;color:var(--text2)">$</span><input type="number" id="${id}" data-acc="${esc(a.name)}" value="${fv[a.name]||0}" min="0" step="1" oninput="onInput(this)"/></div></div>`;
+      const lastVal=last?(last.values[a.name]||0):0;
+      html+=`<div style="display:grid;grid-template-columns:1fr auto auto;align-items:center;padding:8px 14px;gap:12px;background:var(--bg);${i<accs.length-1?'border-bottom:1px solid var(--border)':''}">
+        <label for="${id}" style="font-size:13px">${esc(a.name)}</label>
+        <span style="font-size:13px;font-family:var(--mono);color:var(--text2);text-align:right;white-space:nowrap">${lastVal>0?fmt(lastVal):'—'}</span>
+        <div style="display:flex;align-items:center;gap:4px">
+          <span style="font-size:13px;color:var(--text2)">$</span>
+          <input type="number" id="${id}" data-acc="${esc(a.name)}" data-last="${lastVal}" value="" placeholder="0" min="0" step="1" oninput="onInput(this)" style="width:110px;font-size:13px;font-family:var(--mono);text-align:right;padding:4px 8px;background:var(--bg);border:1px solid var(--border2);border-radius:6px;color:var(--text);outline:none"/>
+        </div>
+      </div>`;
     });
     html+=`</div>`;
   });
+
   if(!activeAccounts().length){
     html+=`<div class="empty"><p>No active accounts. Add or restore accounts in Manage accounts.</p></div>`;
   }
@@ -475,14 +494,109 @@ function renderEnter(){
 function renderHist(){
   const el=$('pane-history');
   if(!entries.length){el.innerHTML=`<div class="empty"><p>No entries yet.</p></div>`;return;}
+
+  if(editingEntryIdx!==null){
+    const entry=entries[editingEntryIdx];
+    if(!entry){editingEntryIdx=null;renderHist();return;}
+
+    // Build list of accounts to show: active accounts + any archived/deleted accounts
+    // that had a non-zero value in this entry
+    const activeNames=new Set(activeAccounts().map(a=>a.name));
+    const extraNames=Object.keys(entry.values).filter(n=>!activeNames.has(n)&&(entry.values[n]||0)>0);
+
+    // Group active accounts by category
+    const cats=getCats();
+
+    let html=`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+      <button onclick="cancelEdit()" style="padding:4px 12px;font-size:12px;border-radius:6px;cursor:pointer;font-family:inherit;border:1px solid var(--border2);background:transparent;color:var(--text2)">← Back</button>
+      <span style="font-size:15px;font-weight:600">Editing entry</span>
+    </div>
+    <div class="entry-bar">
+      <div class="field"><label>Date</label><input type="date" id="edit-date" value="${entry.date}"/></div>
+      <div><div class="live-total-label">Running total</div><div class="live-total" id="edit-total">${fmt(Object.values(entry.values).reduce((a,b)=>a+b,0))}</div></div>
+      <div style="margin-left:auto;align-self:flex-end"><button class="primary" onclick="saveEditedEntry()">Save changes</button></div>
+    </div>`;
+
+    cats.forEach(cat=>{
+      const accs=activeAccounts().filter(a=>a.cat===cat);
+      if(!accs.length)return;
+      html+=`<div class="section-label">${esc(cat)}</div><div class="list">`;
+      accs.forEach(a=>{
+        const id='edit-'+a.name.replace(/[^a-z0-9]/gi,'-');
+        const val=entry.values[a.name]||0;
+        html+=`<div class="list-row"><label for="${id}" style="font-size:13px">${esc(a.name)}</label><div class="row-right"><span style="font-size:13px;color:var(--text2)">$</span><input type="number" id="${id}" data-acc="${esc(a.name)}" value="${val}" min="0" step="1" oninput="onEditInput(this)"/></div></div>`;
+      });
+      html+=`</div>`;
+    });
+
+    // Archived/deleted accounts that had values in this entry
+    if(extraNames.length>0){
+      html+=`<div class="section-label">Archived / removed accounts <span style="font-size:10px;font-weight:400;color:var(--text2)">(had values on this date)</span></div><div class="list">`;
+      extraNames.forEach(name=>{
+        const id='edit-'+name.replace(/[^a-z0-9]/gi,'-');
+        const val=entry.values[name]||0;
+        html+=`<div class="list-row"><label for="${id}" style="font-size:13px;color:var(--text2)">${esc(name)}</label><div class="row-right"><span style="font-size:13px;color:var(--text2)">$</span><input type="number" id="${id}" data-acc="${esc(name)}" value="${val}" min="0" step="1" oninput="onEditInput(this)"/></div></div>`;
+      });
+      html+=`</div>`;
+    }
+
+    el.innerHTML=html;
+    return;
+  }
+
+  // Normal history list
   let html=`<div class="section-label">All entries</div><div class="list">`;
   [...entries].reverse().forEach((entry,i)=>{
     const idx=entries.length-1-i,prev=idx>0?entries[idx-1]:null;
     const total=sumE(entry),diff=prev?total-sumE(prev):null;
-    html+=`<div class="list-row"><span style="font-size:13px">${entry.date}</span><div class="row-right">${diff!==null?`<span class="row-diff ${diff>=0?'green':'red'}">${fmtD(diff)}</span>`:''}<span class="row-val">${fmt(total)}</span></div></div>`;
+    html+=`<div class="list-row">
+      <span style="font-size:13px">${entry.date}</span>
+      <div class="row-right">
+        ${diff!==null?`<span class="row-diff ${diff>=0?'green':'red'}">${fmtD(diff)}</span>`:''}
+        <span class="row-val">${fmt(total)}</span>
+        <button onclick="startEditEntry(${idx})" style="padding:3px 10px;font-size:12px;border-radius:5px;cursor:pointer;font-family:inherit;border:1px solid var(--border2);background:transparent;color:var(--text2)">Edit</button>
+      </div>
+    </div>`;
   });
   html+=`</div><div style="margin-top:12px;display:flex;justify-content:flex-end"><button class="danger" id="del-btn" onclick="delLast()">Delete last entry</button></div>`;
   el.innerHTML=html;
+}
+
+function startEditEntry(idx){
+  editingEntryIdx=idx;
+  renderHist();
+}
+
+function cancelEdit(){
+  editingEntryIdx=null;
+  renderHist();
+}
+
+function onEditInput(inp){
+  const val=parseFloat(inp.value)||0;
+  const name=inp.dataset.acc;
+  // update live total
+  const allInputs=document.querySelectorAll('#pane-history input[data-acc]');
+  let total=0;
+  allInputs.forEach(i=>{total+=parseFloat(i.value)||0;});
+  const el=$('edit-total');if(el)el.textContent=fmt(total);
+}
+
+function saveEditedEntry(){
+  if(editingEntryIdx===null) return;
+  const dateEl=$('edit-date');
+  if(!dateEl||!dateEl.value) return;
+  const allInputs=document.querySelectorAll('#pane-history input[data-acc]');
+  const values={};
+  allInputs.forEach(inp=>{
+    const v=parseFloat(inp.value)||0;
+    if(v>0) values[inp.dataset.acc]=v;
+  });
+  entries[editingEntryIdx]={date:dateEl.value,values};
+  entries.sort((a,b)=>a.date<b.date?-1:1);
+  persist();
+  editingEntryIdx=null;
+  renderHist();
 }
 
 /* ─────────────────────────────────────────
@@ -708,13 +822,18 @@ function addAccount(){
 ───────────────────────────────────────── */
 function onInput(inp){
   fv[inp.dataset.acc]=parseFloat(inp.value)||0;
-  const el=$('live-total');if(el)el.textContent=fmt(Object.values(fv).reduce((a,b)=>a+b,0));
+  const el=$('live-total');
+  if(el){
+    const all=document.querySelectorAll('#pane-enter input[data-acc]');
+    let t=0; all.forEach(i=>{t+=parseFloat(i.value)||0;});
+    el.textContent=fmt(t);
+  }
 }
 function saveEntry(){
   const dateEl=$('edate');if(!dateEl||!dateEl.value)return;
   const values={};
-  // Only save active accounts in new entries
-  activeAccounts().forEach(a=>{values[a.name]=fv[a.name]||0;});
+  const all=document.querySelectorAll('#pane-enter input[data-acc]');
+  all.forEach(inp=>{const v=parseFloat(inp.value)||0;if(v>0)values[inp.dataset.acc]=v;});
   entries.push({date:dateEl.value,values});
   entries.sort((a,b)=>a.date<b.date?-1:1);
   persist();fv={};switchTab('dashboard');
