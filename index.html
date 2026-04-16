@@ -116,30 +116,42 @@
 
 <script>
 const DEFAULT_ACCOUNTS=[
-  {cat:'HSA',        name:'Inspira HSA'},
-  {cat:'HSA',        name:'Optum HSA'},
-  {cat:'HSA',        name:'Thrivepass HSA'},
-  {cat:'Banking',    name:'Chase Bank'},
-  {cat:'Banking',    name:'Capital One'},
-  {cat:'Brokerage',  name:'Fidelity'},
-  {cat:'Brokerage',  name:'UBS'},
-  {cat:'Brokerage',  name:'Wealthfront'},
-  {cat:'Brokerage',  name:'Raymond James'},
-  {cat:'Brokerage',  name:'Etrade'},
-  {cat:'Brokerage',  name:'Merill'},
-  {cat:'Brokerage',  name:'Vanguard'},
-  {cat:'Retirement', name:'ADP 401k'},
-  {cat:'Retirement', name:'Slavic401K'},
-  {cat:'Retirement', name:'Indian529'},
-  {cat:'Real Estate',name:'Personal Home Equity'},
-  {cat:'Real Estate',name:'Arrive Homes'},
-  {cat:'Real Estate',name:'RealtyMogul'},
-  {cat:'Real Estate',name:'Fundrise'},
-  {cat:'Real Estate',name:'HPP Equity'},
-  {cat:'Real Estate',name:'HomeWorks'},
-  {cat:'Alternative',name:'YieldStreet'},
-  {cat:'Alternative',name:'DiversifyFund'},
-  {cat:'Crypto',     name:'Coinbase'},
+  {cat:'Brokerage',  name:'Fidelity Brokerage',      liquid:true,  archived:false},
+  {cat:'HSA',        name:'Inspire HSA',              liquid:true,  archived:false},
+  {cat:'HSA',        name:'Optum HSA',                liquid:true,  archived:false},
+  {cat:'HSA',        name:'Thrivepass HSA',           liquid:true,  archived:false},
+  {cat:'Savings',    name:'Mueller Checking',         liquid:true,  archived:false},
+  {cat:'Savings',    name:'Mueller Savings',          liquid:true,  archived:false},
+  {cat:'Brokerage',  name:'ACN ESPP',                 liquid:true,  archived:false},
+  {cat:'Savings',    name:'Wealthfront',              liquid:true,  archived:false},
+  {cat:'Savings',    name:'Milli Savings',            liquid:true,  archived:false},
+  {cat:'Savings',    name:'Capital One Savings',      liquid:true,  archived:false},
+  {cat:'Retirement', name:'RJ RIRA',                  liquid:false, archived:false},
+  {cat:'Business',   name:'ME Business',              liquid:false, archived:false},
+  {cat:'Business',   name:'OT Checking',              liquid:false, archived:false},
+  {cat:'Business',   name:'OT Savings',               liquid:false, archived:false},
+  {cat:'Business',   name:'OT QB Checking',           liquid:false, archived:false},
+  {cat:'Business',   name:'OT Balance',               liquid:false, archived:false},
+  {cat:'Brokerage',  name:'Etrade Annie Brokerage',   liquid:false, archived:false},
+  {cat:'Retirement', name:'Etrade Annie Roth',        liquid:false, archived:false},
+  {cat:'529',        name:'Fidelity 529',             liquid:false, archived:false},
+  {cat:'Retirement', name:'Daye 401K',                liquid:false, archived:false},
+  {cat:'Retirement', name:'ACN 401K',                 liquid:false, archived:false},
+  {cat:'Real Estate',name:'Fundrise',                 liquid:false, archived:false},
+  {cat:'Real Estate',name:'YieldStreet',              liquid:false, archived:false},
+  {cat:'Real Estate',name:'RealtyMogul',              liquid:false, archived:false},
+  {cat:'529',        name:'529',                      liquid:false, archived:false},
+  {cat:'Real Estate',name:'Home Equity',              liquid:false, archived:false},
+  {cat:'Real Estate',name:'Arrived Homes',            liquid:false, archived:false},
+  {cat:'Crypto',     name:'Coinbase',                 liquid:false, archived:false},
+  {cat:'Brokerage',  name:'VG Anne Brokerage',        liquid:true,  archived:false},
+  {cat:'Retirement', name:'VG Anne Roth',             liquid:false, archived:false},
+  {cat:'Brokerage',  name:'VG Sam Brokerage',         liquid:true,  archived:false},
+  {cat:'Retirement', name:'VG Sam Roth',              liquid:false, archived:false},
+  {cat:'Retirement', name:'OT 401K',                  liquid:false, archived:false},
+  {cat:'Real Estate',name:'HPP Equity',               liquid:false, archived:false},
+  {cat:'Real Estate',name:'HomeWorks',                liquid:false, archived:false},
+  {cat:'Real Estate',name:'Diversyfund',              liquid:false, archived:false},
 ];
 
 let accounts=[], entries=[], currentTab='dashboard', fv={};
@@ -175,6 +187,11 @@ function load(){
       if(a.archived===undefined) a.archived=false;
       if(a.liquid===undefined) a.liquid=false;
     });
+    // if accounts is empty (e.g. user deleted everything), restore defaults
+    if(accounts.length===0){
+      accounts=JSON.parse(JSON.stringify(DEFAULT_ACCOUNTS));
+      persistAccounts();
+    }
   }catch(e){accounts=JSON.parse(JSON.stringify(DEFAULT_ACCOUNTS));}
 }
 function persist(){try{localStorage.setItem('nw_entries',JSON.stringify(entries));}catch(e){}}
