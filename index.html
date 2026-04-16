@@ -70,14 +70,23 @@
   .badge-archived{background:rgba(133,79,11,0.12);color:var(--amber);}
 
   /* Manage tab */
-  .mgmt-header{display:grid;grid-template-columns:1fr 150px 120px;gap:8px;padding:6px 14px;
+  .mgmt-header{display:grid;grid-template-columns:1fr 140px 60px 120px;gap:8px;padding:6px 14px;
     background:var(--bg2);border:1px solid var(--border);border-bottom:none;border-radius:8px 8px 0 0;}
   .mgmt-header span{font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;}
-  .mgmt-row{display:grid;grid-template-columns:1fr 150px 120px;gap:8px;align-items:start;
+  .mgmt-row{display:grid;grid-template-columns:1fr 140px 60px 120px;gap:8px;align-items:start;
     padding:8px 14px;background:var(--bg);border:1px solid var(--border);border-top:none;}
   .mgmt-row:last-child{border-radius:0 0 8px 8px;}
   .mgmt-row input[type=text],.mgmt-row select{min-width:0;width:100%;}
   .archived-row{background:var(--bg2);opacity:0.8;}
+  .liq-wrap{display:flex;flex-direction:column;align-items:center;padding-top:5px;gap:3px;}
+  .liq-wrap span{font-size:10px;color:var(--text2);}
+  .liq-toggle{position:relative;display:inline-block;width:34px;height:20px;cursor:pointer;flex-shrink:0;}
+  .liq-toggle input{opacity:0;width:0;height:0;position:absolute;}
+  .liq-slider{position:absolute;top:0;left:0;right:0;bottom:0;background:var(--border2);border-radius:20px;transition:.2s;cursor:pointer;}
+  .liq-slider:before{position:absolute;content:"";height:14px;width:14px;left:3px;bottom:3px;background:white;border-radius:50%;transition:.2s;}
+  .liq-toggle input:checked+.liq-slider{background:#1D9E75;}
+  .liq-toggle input:checked+.liq-slider:before{transform:translateX(14px);}
+  .badge-liquid{background:rgba(15,110,86,0.1);color:var(--green);}
   .add-form{background:var(--bg2);border-radius:var(--radius-sm);padding:14px;margin-top:4px;display:flex;flex-direction:column;gap:10px;}
   .add-row{display:flex;gap:8px;flex-wrap:wrap;}
   .add-row input,.add-row select{flex:1;min-width:120px;}
@@ -161,8 +170,11 @@ function load(){
   try{
     const a=localStorage.getItem('nw_accounts');
     accounts=a?JSON.parse(a):JSON.parse(JSON.stringify(DEFAULT_ACCOUNTS));
-    // backfill archived flag for older saved data
-    accounts.forEach(a=>{if(a.archived===undefined)a.archived=false;});
+    // backfill archived and liquid flags for older saved data
+    accounts.forEach(a=>{
+      if(a.archived===undefined) a.archived=false;
+      if(a.liquid===undefined) a.liquid=false;
+    });
   }catch(e){accounts=JSON.parse(JSON.stringify(DEFAULT_ACCOUNTS));}
 }
 function persist(){try{localStorage.setItem('nw_entries',JSON.stringify(entries));}catch(e){}}
@@ -196,6 +208,9 @@ function renderDash(){
   }
   const last=entries[entries.length-1],prev=entries.length>=2?entries[entries.length-2]:null;
   const total=sumE(last),diff=prev?total-sumE(prev):null,pct=prev&&sumE(prev)?(total-sumE(prev))/sumE(prev)*100:null;
+  const liquidTotal=accounts.filter(a=>a.liquid&&!a.archived).reduce((s,a)=>s+(last.values[a.name]||0),0);
+  const liquidPrev=prev?accounts.filter(a=>a.liquid&&!a.archived).reduce((s,a)=>s+(prev.values[a.name]||0),0):null;
+  const liquidDiff=liquidPrev!==null?liquidTotal-liquidPrev:null;
 
   let html=`<div class="cards">
     <div class="card"><div class="card-label">Net worth</div><div class="card-value">${fmt(total)}</div></div>`;
@@ -204,7 +219,9 @@ function renderDash(){
   }else{
     html+=`<div class="card"><div class="card-label">Entries</div><div class="card-value">${entries.length}</div></div>`;
   }
-  html+=`<div class="card"><div class="card-label">Last updated</div><div class="card-value" style="font-size:14px;padding-top:4px">${last.date}</div><div class="card-sub" style="font-family:inherit">${entries.length} entr${entries.length===1?'y':'ies'}</div></div></div>`;
+  html+=`<div class="card"><div class="card-label">Last updated</div><div class="card-value" style="font-size:14px;padding-top:4px">${last.date}</div><div class="card-sub" style="font-family:inherit">${entries.length} entr${entries.length===1?'y':'ies'}</div></div>
+  <div class="card"><div class="card-label">Liquid assets</div><div class="card-value" style="color:var(--green)">${fmt(liquidTotal)}</div>${liquidDiff!==null&&liquidDiff!==0?`<div class="card-sub ${liquidDiff>=0?'green':'red'}" style="color:${liquidDiff>=0?'var(--green)':'var(--red)'}">${fmtD(liquidDiff)}</div>`:''}</div>
+  </div>`;
 
   // Active category breakdown
   html+=`<div class="section-label">By category</div><div class="list">`;
@@ -312,7 +329,7 @@ function renderManage(){
   if(active.length===0){
     html+=`<div class="empty" style="padding:20px 0"><p>No active accounts.</p></div>`;
   }else{
-    html+=`<div class="mgmt-header"><span>Account name</span><span>Category</span><span></span></div>`;
+    html+=`<div class="mgmt-header"><span>Account name</span><span>Category</span><span>Liquid</span><span></span></div>`;
     accounts.forEach((a,idx)=>{
       if(a.archived)return;
       html+=`<div class="mgmt-row" id="mgmt-${idx}">
@@ -324,6 +341,13 @@ function renderManage(){
           </select>
           <input type="text" class="new-cat-inp" id="nci-${idx}" placeholder="New category name"
             onblur="handleNewCatBlur(this,${idx})" onkeydown="if(event.key==='Enter')this.blur()" style="display:none"/>
+        </div>
+        <div class="liq-wrap">
+          <label class="liq-toggle">
+            <input type="checkbox" ${a.liquid?'checked':''} onchange="toggleLiquid(${idx},this.checked)"/>
+            <span class="liq-slider"></span>
+          </label>
+          <span>${a.liquid?'Yes':'No'}</span>
         </div>
         <button class="warn" id="archbtn-${idx}" onclick="archiveAccount(${idx})">Archive</button>
       </div>`;
@@ -371,6 +395,16 @@ function renderManage(){
 function showMsg(html,ms=3500){
   const el=$('manage-msg');
   if(el){el.innerHTML=html;if(ms)setTimeout(()=>{const e=$('manage-msg');if(e)e.innerHTML='';},ms);}
+}
+
+/* ── Liquid toggle ── */
+function toggleLiquid(idx,val){
+  const acct=accounts[idx];if(!acct)return;
+  acct.liquid=val;
+  persistAccounts();
+  // update the Yes/No label without full re-render
+  const wrap=document.querySelector(`#mgmt-${idx} .liq-wrap span`);
+  if(wrap)wrap.textContent=val?'Yes':'No';
 }
 
 /* ── Name edit (auto-save on blur) ── */
@@ -484,7 +518,7 @@ function addAccount(){
   if(accounts.some(a=>a.name===name)){
     showMsg(`<div class="msg err">"${esc(name)}" already exists.</div>`,4000);return;
   }
-  accounts.push({cat,name,archived:false});
+  accounts.push({cat,name,archived:false,liquid:false});
   persistAccounts();fv={};
   renderManage();
   showMsg(`<div class="msg ok">"${esc(name)}" added to ${esc(cat)}.</div>`);
