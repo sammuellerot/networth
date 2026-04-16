@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Net Worth Tracker</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+  :root{
+    --bg:#ffffff;--bg2:#f5f5f3;--bg3:#eeece8;
+    --text:#1a1a1a;--text2:#666;--text3:#999;
+    --border:rgba(0,0,0,0.12);--border2:rgba(0,0,0,0.2);
+    --green:#0f6e56;--red:#a32d2d;
+    --radius:10px;--radius-sm:7px;
+    --mono:'Courier New',monospace;
+  }
+  @media(prefers-color-scheme:dark){
+    :root{
+      --bg:#1c1c1e;--bg2:#2c2c2e;--bg3:#3a3a3c;
+      --text:#f0f0f0;--text2:#aaa;--text3:#666;
+      --border:rgba(255,255,255,0.1);--border2:rgba(255,255,255,0.2);
+      --green:#5dcaa5;--red:#f09595;
+    }
+  }
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);max-width:700px;margin:0 auto;padding:20px 16px 60px;}
+  h1{font-size:20px;font-weight:600;margin-bottom:3px;}
+  .sub{font-size:12px;color:var(--text2);margin-bottom:20px;}
+  .tabs{display:flex;border-bottom:1px solid var(--border);margin-bottom:20px;overflow-x:auto;}
+  .tab{padding:8px 14px;font-size:13px;background:transparent;border:none;border-bottom:2px solid transparent;cursor:pointer;color:var(--text2);font-family:inherit;margin-bottom:-1px;white-space:nowrap;}
+  .tab.active{color:var(--text);border-bottom-color:var(--text);font-weight:500;}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:20px;}
+  .card{background:var(--bg2);border-radius:var(--radius-sm);padding:14px;}
+  .card-label{font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;}
+  .card-value{font-size:20px;font-weight:600;font-family:var(--mono);}
+  .card-sub{font-size:11px;color:var(--text2);margin-top:3px;font-family:var(--mono);}
+  .green{color:var(--green);}
+  .red{color:var(--red);}
+  .section-label{font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;margin:18px 0 7px;}
+  .list{border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;}
+  .list-row{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:var(--bg);border-bottom:1px solid var(--border);}
+  .list-row:last-child{border-bottom:none;}
+  .row-left{font-size:13px;color:var(--text);}
+  .row-right{display:flex;align-items:center;gap:10px;}
+  .row-val{font-size:13px;font-family:var(--mono);color:var(--text);}
+  .row-diff{font-size:11px;font-family:var(--mono);}
+  .entry-bar{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;background:var(--bg2);border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:16px;}
+  .field label{display:block;font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;}
+  input[type=date],input[type=number],input[type=text],select{
+    background:var(--bg);border:1px solid var(--border2);border-radius:6px;
+    color:var(--text);font-family:inherit;padding:6px 10px;font-size:13px;outline:none;
+  }
+  input[type=date]:focus,input[type=number]:focus,input[type=text]:focus,select:focus{border-color:#1D9E75;}
+  input[type=number]{width:110px;text-align:right;font-family:var(--mono);}
+  .live-total-label{font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;}
+  .live-total{font-size:18px;font-weight:600;font-family:var(--mono);color:var(--text);}
+  button.primary{background:#1D9E75;color:#fff;border:none;border-radius:6px;padding:8px 20px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;}
+  button.primary:hover{background:#0f6e56;}
+  button.danger{background:transparent;border:1px solid var(--red);border-radius:6px;padding:4px 10px;font-size:12px;color:var(--red);cursor:pointer;font-family:inherit;}
+  button.danger:hover{background:var(--red);color:#fff;}
+  .empty{text-align:center;padding:40px 16px;color:var(--text2);}
+  .empty p{margin-bottom:14px;font-size:14px;}
+  .chart-wrap{position:relative;width:100%;height:220px;margin-bottom:20px;}
+
+  /* Manage tab */
+  .manage-row{display:grid;grid-template-columns:1fr 160px auto auto;gap:8px;align-items:center;padding:8px 14px;background:var(--bg);border-bottom:1px solid var(--border);}
+  .manage-row:last-child{border-bottom:none;}
+  .manage-row input[type=text]{min-width:0;}
+  .manage-row select{min-width:0;}
+  .manage-row .new-cat-inp{display:none;grid-column:2;margin-top:4px;}
+  .add-form{background:var(--bg2);border-radius:var(--radius-sm);padding:14px;margin-top:4px;display:flex;flex-direction:column;gap:10px;}
+  .add-row{display:flex;gap:8px;flex-wrap:wrap;}
+  .add-row input,.add-row select{flex:1;min-width:120px;}
+  .msg{font-size:12px;padding:7px 10px;border-radius:6px;margin-bottom:10px;}
+  .msg.ok{background:rgba(15,110,86,0.1);color:var(--green);}
+  .msg.err{background:rgba(163,45,45,0.1);color:var(--red);}
+  @media(max-width:500px){
+    .manage-row{grid-template-columns:1fr auto auto;}
+    .manage-row .cat-col{display:none;}
+  }
+</style>
+</head>
+<body>
+
+<h1>Net worth tracker</h1>
+<p class="sub">Your accounts, every 2 weeks</p>
+
+<div class="tabs">
+  <button class="tab active" onclick="switchTab('dashboard')">Dashboard</button>
+  <button class="tab" onclick="switchTab('enter')">Enter values</button>
+  <button class="tab" onclick="switchTab('history')">History</button>
+  <button class="tab" onclick="switchTab('manage')">Manage accounts</button>
+</div>
+
+<div id="pane-dashboard"></div>
+<div id="pane-enter"   style="display:none"></div>
+<div id="pane-history" style="display:none"></div>
+<div id="pane-manage"  style="display:none"></div>
+
+<script>
+/* ─────────────────────────────────────────
+   Default account list (first-time only)
+───────────────────────────────────────── */
+const DEFAULT_ACCOUNTS=[
+  {cat:'HSA',        name:'Inspira HSA'},
+  {cat:'HSA',        name:'Optum HSA'},
+  {cat:'HSA',        name:'Thrivepass HSA'},
+  {cat:'Banking',    name:'Chase Bank'},
+  {cat:'Banking',    name:'Capital One'},
+  {cat:'Brokerage',  name:'Fidelity'},
+  {cat:'Brokerage',  name:'UBS'},
+  {cat:'Brokerage',  name:'Wealthfront'},
+  {cat:'Brokerage',  name:'Raymond James'},
+  {cat:'Brokerage',  name:'Etrade'},
+  {cat:'Brokerage',  name:'Merill'},
+  {cat:'Brokerage',  name:'Vanguard'},
+  {cat:'Retirement', name:'ADP 401k'},
+  {cat:'Retirement', name:'Slavic401K'},
+  {cat:'Retirement', name:'Indian529'},
+  {cat:'Real Estate',name:'Personal Home Equity'},
+  {cat:'Real Estate',name:'Arrive Homes'},
+  {cat:'Real Estate',name:'RealtyMogul'},
+  {cat:'Real Estate',name:'Fundrise'},
+  {cat:'Real Estate',name:'HPP Equity'},
+  {cat:'Real Estate',name:'HomeWorks'},
+  {cat:'Alternative',name:'YieldStreet'},
+  {cat:'Alternative',name:'DiversifyFund'},
+  {cat:'Crypto',     name:'Coinbase'},
+];
+
+/* ─────────────────────────────────────────
+   State
+───────────────────────────────────────── */
+let accounts = [];
+let entries  = [];
+let currentTab = 'dashboard';
+let fv = {};
+let histChart  = null;
+let delEntryConfirm = false;
+let delAcctConfirm  = null;
+
+/* ─────────────────────────────────────────
+   Helpers
+───────────────────────────────────────── */
+const $    = id => document.getElementById(id);
+const fmt  = n  => new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',minimumFractionDigits:0,maximumFractionDigits:0}).format(n||0);
+const fmtD = n  => (n>=0?'+':'')+fmt(n);
+const sumE = e  => Object.values(e.values).reduce((a,b)=>a+(b||0),0);
+const getCats = () => [...new Set(accounts.map(a=>a.cat))];
+
+/* ─────────────────────────────────────────
+   Persistence
+───────────────────────────────────────── */
+function load(){
+  try{ const d=localStorage.getItem('nw_entries'); if(d) entries=JSON.parse(d); }
+  catch(e){ entries=[]; }
+  try{
+    const a=localStorage.getItem('nw_accounts');
+    accounts = a ? JSON.parse(a) : JSON.parse(JSON.stringify(DEFAULT_ACCOUNTS));
+  } catch(e){ accounts=JSON.parse(JSON.stringify(DEFAULT_ACCOUNTS)); }
+}
+function persist()        { try{localStorage.setItem('nw_entries', JSON.stringify(entries));}  catch(e){} }
+function persistAccounts(){ try{localStorage.setItem('nw_accounts',JSON.stringify(accounts));} catch(e){} }
+
+function initFV(){
+  const last = entries.length ? entries[entries.length-1] : null;
+  fv = {};
+  accounts.forEach(a=>{ fv[a.name] = last ? (last.values[a.name]||0) : 0; });
+}
+
+/* ─────────────────────────────────────────
+   Tab switching
+───────────────────────────────────────── */
+function switchTab(t){
+  const TABS=['dashboard','enter','history','manage'];
+  document.querySelectorAll('.tab').forEach((el,i)=>{
+    el.classList.toggle('active', TABS[i]===t);
+  });
+  TABS.forEach(name=>{
+    $(('pane-'+name)).style.display = name===t ? 'block' : 'none';
+  });
+  if(t==='enter' && currentTab!=='enter') fv={};
+  currentTab=t;
+  if(t==='dashboard') renderDash();
+  else if(t==='enter')   renderEnter();
+  else if(t==='history') renderHist();
+  else                   renderManage();
+}
+
+/* ─────────────────────────────────────────
+   Dashboard
+───────────────────────────────────────── */
+function renderDash(){
+  const el=$('pane-dashboard');
+  if(!entries.length){
+    el.innerHTML=`<div class="empty"><p>No entries yet</p><button class="primary" onclick="switchTab('enter')">Enter first values</button></div>`;
+    return;
+  }
+  const last=entries[entries.length-1], prev=entries.length>=2?entries[entries.length-2]:null;
+  const total=sumE(last), diff=prev?total-sumE(prev):null, pct=prev&&sumE(prev)?(total-sumE(prev))/sumE(prev)*100:null;
+  const cats=getCats();
+
+  let html=`<div class="cards">
+    <div class="card">
+      <div class="card-label">Net worth</div>
+      <div class="card-value">${fmt(total)}</div>
+    </div>`;
+  if(diff!==null){
+    html+=`<div class="card">
+      <div class="card-label">Since last entry</div>
+      <div class="card-value ${diff>=0?'green':'red'}">${fmtD(diff)}</div>
+      <div class="card-sub">${diff>=0?'+':''}${pct.toFixed(1)}%</div>
+    </div>`;
+  } else {
+    html+=`<div class="card">
+      <div class="card-label">Entries</div>
+      <div class="card-value">${entries.length}</div>
+    </div>`;
+  }
+  html+=`<div class="card">
+    <div class="card-label">Last updated</div>
+    <div class="card-value" style="font-size:14px;padding-top:4px">${last.date}</div>
+    <div class="card-sub" style="font-family:inherit">${entries.length} entr${entries.length===1?'y':'ies'}</div>
+  </div></div>
+  <div class="section-label">By category</div><div class="list">`;
+
+  cats.forEach(cat=>{
+    const accs=accounts.filter(a=>a.cat===cat);
+    const val =accs.reduce((s,a)=>s+(last.values[a.name]||0),0);
+    const pval=prev?accs.reduce((s,a)=>s+(prev.values[a.name]||0),0):null;
+    const cd  =pval!==null?val-pval:null;
+    html+=`<div class="list-row">
+      <span class="row-left">${cat}</span>
+      <div class="row-right">
+        ${cd!==null&&cd!==0?`<span class="row-diff ${cd>=0?'green':'red'}">${fmtD(cd)}</span>`:''}
+        <span class="row-val">${fmt(val)}</span>
+      </div>
+    </div>`;
+  });
+  html+=`</div>`;
+  el.innerHTML=html;
+}
+
+/* ─────────────────────────────────────────
+   Enter values
+───────────────────────────────────────── */
+function renderEnter(){
+  if(!Object.keys(fv).length) initFV();
+  const total=Object.values(fv).reduce((a,b)=>a+b,0);
+  const today=new Date().toISOString().split('T')[0];
+  const cats=getCats();
+  const el=$('pane-enter');
+
+  let html=`<div class="entry-bar">
+    <div class="field"><label>Date</label><input type="date" id="edate" value="${today}"/></div>
+    <div>
+      <div class="live-total-label">Running total</div>
+      <div class="live-total" id="live-total">${fmt(total)}</div>
+    </div>
+    <div style="margin-left:auto;align-self:flex-end">
+      <button class="primary" onclick="saveEntry()">Save entry</button>
+    </div>
+  </div>`;
+
+  cats.forEach(cat=>{
+    const accs=accounts.filter(a=>a.cat===cat);
+    if(!accs.length) return;
+    html+=`<div class="section-label">${cat}</div><div class="list">`;
+    accs.forEach(a=>{
+      const id='inp-'+a.name.replace(/[^a-z0-9]/gi,'-');
+      html+=`<div class="list-row">
+        <label for="${id}" class="row-left">${a.name}</label>
+        <div class="row-right">
+          <span style="font-size:13px;color:var(--text2)">$</span>
+          <input type="number" id="${id}" data-acc="${a.name}" value="${fv[a.name]||0}" min="0" step="1" oninput="onInput(this)"/>
+        </div>
+      </div>`;
+    });
+    html+=`</div>`;
+  });
+  el.innerHTML=html;
+}
+
+/* ─────────────────────────────────────────
+   History
+───────────────────────────────────────── */
+function renderHist(){
+  const el=$('pane-history');
+  if(!entries.length){
+    el.innerHTML=`<div class="empty"><p>No entries yet. Enter your first values to see history.</p></div>`;
+    return;
+  }
+  let html=`<div class="chart-wrap"><canvas id="histChart" role="img" aria-label="Net worth over time">Net worth over time.</canvas></div>
+  <div class="section-label">All entries</div><div class="list">`;
+  [...entries].reverse().forEach((entry,i)=>{
+    const idx=entries.length-1-i, prev=idx>0?entries[idx-1]:null;
+    const total=sumE(entry), diff=prev?total-sumE(prev):null;
+    html+=`<div class="list-row">
+      <span class="row-left">${entry.date}</span>
+      <div class="row-right">
+        ${diff!==null?`<span class="row-diff ${diff>=0?'green':'red'}">${fmtD(diff)}</span>`:''}
+        <span class="row-val">${fmt(total)}</span>
+      </div>
+    </div>`;
+  });
+  html+=`</div>
+  <div style="margin-top:12px;display:flex;justify-content:flex-end">
+    <button class="danger" id="del-btn" onclick="delLast()">Delete last entry</button>
+  </div>`;
+  el.innerHTML=html;
+  renderChart();
+}
+
+function renderChart(){
+  const ctx=$('histChart'); if(!ctx) return;
+  if(histChart){ histChart.destroy(); histChart=null; }
+  const dark=window.matchMedia('(prefers-color-scheme:dark)').matches;
+  histChart=new Chart(ctx,{
+    type:'line',
+    data:{
+      labels:entries.map(e=>e.date),
+      datasets:[{
+        label:'Net worth', data:entries.map(sumE),
+        borderColor:'#1D9E75',
+        backgroundColor:dark?'rgba(29,158,117,0.12)':'rgba(29,158,117,0.08)',
+        fill:true, tension:0.35, pointRadius:4, pointBackgroundColor:'#1D9E75', borderWidth:2
+      }]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{display:false}, tooltip:{callbacks:{label:c=>fmt(c.raw)}} },
+      scales:{
+        y:{ ticks:{callback:v=>v>=1e6?'$'+(v/1e6).toFixed(1)+'M':v>=1000?'$'+(v/1000).toFixed(0)+'k':'$'+v, font:{size:11}, color:dark?'#888':'#666'}, grid:{color:dark?'rgba(255,255,255,0.07)':'rgba(0,0,0,0.07)'} },
+        x:{ ticks:{font:{size:11}, maxRotation:45, color:dark?'#888':'#666', autoSkip:true, maxTicksLimit:8}, grid:{display:false} }
+      }
+    }
+  });
+}
+
+/* ─────────────────────────────────────────
+   Manage accounts
+───────────────────────────────────────── */
+function catOptions(selected){
+  return getCats().map(c=>`<option value="${c}"${c===selected?' selected':''}>${c}</option>`).join('')
+    + `<option value="__new__">+ New category...</option>`;
+}
+
+function renderManage(){
+  const el=$('pane-manage');
+  let html=`<div id="manage-msg"></div>
+  <p style="font-size:13px;color:var(--text2);margin-bottom:12px">
+    Edit account names and categories below, then click <strong>Save changes</strong>.
+    Renames and recategorizations carry through all past entries automatically.
+  </p>
+  <div style="display:flex;justify-content:flex-end;margin-bottom:14px">
+    <button class="primary" onclick="saveAccountEdits()">Save changes</button>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 160px auto auto;gap:8px;padding:6px 14px;background:var(--bg2);border-radius:6px 6px 0 0;border:1px solid var(--border);border-bottom:none;">
+    <span style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em">Account name</span>
+    <span style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em" class="cat-col">Category</span>
+    <span></span><span></span>
+  </div>
+  <div class="list" style="border-radius:0 0 10px 10px">`;
+
+  accounts.forEach((a,idx)=>{
+    const sid='row-'+idx;
+    html+=`<div class="manage-row" id="${sid}">
+      <input type="text" data-idx="${idx}" class="name-inp" value="${escHtml(a.name)}" placeholder="Account name"/>
+      <div class="cat-col" style="display:contents">
+        <select data-idx="${idx}" class="cat-sel" onchange="toggleInlineNewCat(this,'${sid}')">
+          ${catOptions(a.cat)}
+        </select>
+      </div>
+      <input type="text" class="new-cat-inp" id="nc-${sid}" placeholder="New category name" style="display:none;min-width:0;"/>
+      <button class="danger" id="delbtn-${idx}" onclick="deleteAccount(${idx},'${idx}')">Delete</button>
+    </div>`;
+  });
+
+  html+=`</div>
+
+  <!-- Add new account -->
+  <div class="section-label" style="margin-top:24px">Add new account</div>
+  <div class="add-form">
+    <div class="add-row">
+      <input type="text" id="new-name" placeholder="Account name"/>
+      <select id="new-cat-sel" onchange="toggleAddNewCat(this)">
+        ${catOptions('')}
+      </select>
+    </div>
+    <div id="add-new-cat-wrap" style="display:none">
+      <input type="text" id="new-cat-name" placeholder="New category name" style="width:100%"/>
+    </div>
+    <div><button class="primary" onclick="addAccount()">Add account</button></div>
+  </div>`;
+
+  el.innerHTML=html;
+}
+
+function escHtml(s){ return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+
+function toggleInlineNewCat(sel, rowId){
+  const nc=$('nc-'+rowId);
+  if(nc) nc.style.display = sel.value==='__new__' ? 'block' : 'none';
+}
+function toggleAddNewCat(sel){
+  const w=$('add-new-cat-wrap');
+  if(w) w.style.display = sel.value==='__new__' ? 'block' : 'none';
+}
+
+function showMsg(html, ms=3500){
+  const el=$('manage-msg');
+  if(el){ el.innerHTML=html; if(ms) setTimeout(()=>{ const e=$('manage-msg'); if(e) e.innerHTML=''; }, ms); }
+}
+
+function saveAccountEdits(){
+  const nameInputs = document.querySelectorAll('#pane-manage .name-inp');
+  const catSels    = document.querySelectorAll('#pane-manage .cat-sel');
+  let changed=false, hasError=false;
+
+  nameInputs.forEach(inp=>{
+    const idx   = parseInt(inp.dataset.idx);
+    const acct  = accounts[idx];
+    if(!acct) return;
+
+    const newName = inp.value.trim();
+    const catSel  = document.querySelector(`.cat-sel[data-idx="${idx}"]`);
+    const ncInp   = $('nc-row-'+idx) || document.querySelector(`#row-${idx} .new-cat-inp`);
+    let newCat    = catSel ? catSel.value : acct.cat;
+    if(newCat==='__new__'){
+      newCat = ncInp ? ncInp.value.trim() : '';
+    }
+
+    inp.style.borderColor='';
+    if(!newName){ inp.style.borderColor='var(--red)'; hasError=true; return; }
+    if(!newCat) { if(ncInp) ncInp.style.borderColor='var(--red)'; hasError=true; return; }
+
+    // Duplicate name check (ignore self)
+    if(newName !== acct.name && accounts.some((a,i)=>i!==idx&&a.name===newName)){
+      inp.style.borderColor='var(--red)';
+      showMsg(`<div class="msg err">"${newName}" already exists — choose a different name.</div>`,4000);
+      hasError=true; return;
+    }
+
+    const oldName = acct.name;
+    const oldCat  = acct.cat;
+
+    if(newName !== oldName){
+      // rename in all entries
+      entries.forEach(e=>{
+        if(oldName in e.values){ e.values[newName]=e.values[oldName]; delete e.values[oldName]; }
+      });
+      acct.name=newName; changed=true;
+    }
+    if(newCat !== oldCat){
+      acct.cat=newCat; changed=true;
+    }
+  });
+
+  if(!hasError && changed){
+    persistAccounts(); persist(); fv={};
+    renderManage();
+    showMsg(`<div class="msg ok">Changes saved.</div>`);
+  } else if(!hasError && !changed){
+    showMsg(`<div class="msg ok">No changes to save.</div>`);
+  }
+}
+
+function deleteAccount(idx, btnSuffix){
+  const btn=$('delbtn-'+btnSuffix); if(!btn) return;
+  const name = accounts[idx] ? accounts[idx].name : '';
+  if(delAcctConfirm !== idx){
+    delAcctConfirm=idx; btn.textContent='Confirm?';
+    setTimeout(()=>{ delAcctConfirm=null; const b=$('delbtn-'+btnSuffix); if(b) b.textContent='Delete'; },3000);
+    return;
+  }
+  accounts.splice(idx,1);
+  persistAccounts(); fv={}; delAcctConfirm=null;
+  renderManage();
+  showMsg(`<div class="msg ok">"${name}" removed.</div>`);
+}
+
+function addAccount(){
+  const nameEl=$('new-name'), catSel=$('new-cat-sel'), ncEl=$('new-cat-name');
+  const name=(nameEl?.value||'').trim();
+  const catVal=catSel?.value||'';
+  const cat=catVal==='__new__'?((ncEl?.value||'').trim()):catVal;
+
+  if(nameEl) nameEl.style.borderColor='';
+  if(ncEl)   ncEl.style.borderColor='';
+  if(!name){ if(nameEl) nameEl.style.borderColor='var(--red)'; return; }
+  if(!cat) { if(ncEl)   ncEl.style.borderColor='var(--red)'; return; }
+  if(accounts.some(a=>a.name===name)){
+    showMsg(`<div class="msg err">"${name}" already exists.</div>`,4000); return;
+  }
+  accounts.push({cat,name});
+  persistAccounts(); fv={};
+  renderManage();
+  showMsg(`<div class="msg ok">"${name}" added to ${cat}.</div>`);
+}
+
+/* ─────────────────────────────────────────
+   Shared actions
+───────────────────────────────────────── */
+function onInput(inp){
+  fv[inp.dataset.acc]=parseFloat(inp.value)||0;
+  const el=$('live-total');
+  if(el) el.textContent=fmt(Object.values(fv).reduce((a,b)=>a+b,0));
+}
+
+function saveEntry(){
+  const dateEl=$('edate'); if(!dateEl||!dateEl.value) return;
+  const values={};
+  accounts.forEach(a=>{ values[a.name]=fv[a.name]||0; });
+  entries.push({date:dateEl.value, values});
+  entries.sort((a,b)=>a.date<b.date?-1:1);
+  persist(); fv={};
+  switchTab('dashboard');
+}
+
+function delLast(){
+  const btn=$('del-btn'); if(!btn) return;
+  if(!delEntryConfirm){
+    delEntryConfirm=true; btn.textContent='Confirm delete?';
+    setTimeout(()=>{ delEntryConfirm=false; const b=$('del-btn'); if(b) b.textContent='Delete last entry'; },3000);
+    return;
+  }
+  entries.pop(); delEntryConfirm=false; persist(); renderHist();
+}
+
+/* ─────────────────────────────────────────
+   Boot
+───────────────────────────────────────── */
+load();
+renderDash();
+</script>
+</body>
+</html>
