@@ -251,10 +251,13 @@ function avgMonthlyChange3m(){
   let closest=entries[0],minDiff=Infinity;
   entries.forEach(e=>{const d=Math.abs(new Date(e.date)-cutoff);if(d<minDiff){minDiff=d;closest=e;}});
   if(closest.date===last.date) return null;
-  const totalDiff=sumE(last)-sumE(closest);
+  const startVal=sumE(closest),endVal=sumE(last);
+  const totalDiff=endVal-startVal;
   const monthsDiff=(lastDate-new Date(closest.date))/(1000*60*60*24*30.44);
   if(monthsDiff<0.5) return null;
-  return Math.round(totalDiff/monthsDiff);
+  const avgDollar=Math.round(totalDiff/monthsDiff);
+  const avgPct=startVal>0?Math.round(totalDiff/startVal/monthsDiff*1000)/10:null;
+  return {dollar:avgDollar,pct:avgPct};
 }
 
 function setDashFilter(f){
@@ -411,7 +414,7 @@ function renderDash(){
       ${diff!==null?`<div class="card"><div class="card-label">Since last entry</div><div class="card-value ${diff>=0?'green':'red'}">${fmtD(diff)}</div><div class="card-sub">${diff>=0?'+':''}${pct.toFixed(1)}%</div></div>`:`<div class="card"><div class="card-label">Entries</div><div class="card-value">${entries.length}</div></div>`}
       <div class="card"><div class="card-label">Last updated</div><div class="card-value" style="font-size:13px;padding-top:4px">${last.date}</div><div class="card-sub" style="font-family:inherit">${entries.length} entr${entries.length===1?'y':'ies'}</div></div>
       <div class="card"><div class="card-label">Liquid assets</div><div class="card-value" style="color:var(--green)">${fmt(liquidTotal)}</div>${liquidDiff!==null&&liquidDiff!==0?`<div class="card-sub" style="color:${liquidDiff>=0?'var(--green)':'var(--red)'}">${fmtD(liquidDiff)}</div>`:''}</div>
-      ${avgMo!==null?`<div class="card"><div class="card-label">Avg/month (3mo)</div><div class="card-value ${avgMo>=0?'green':'red'}">${fmtD(avgMo)}</div><div class="card-sub">3-month trailing</div></div>`:''}
+      ${avgMo!==null?`<div class="card"><div class="card-label">Avg/month (3mo)</div><div class="card-value ${avgMo.dollar>=0?'green':'red'}">${fmtD(avgMo.dollar)}</div><div class="card-sub" style="color:${avgMo.dollar>=0?'var(--green)':'var(--red)'}">${avgMo.pct!==null?(avgMo.pct>=0?'+':'')+avgMo.pct+'% / mo':''}</div></div>`:''}
     </div>`;
 
     let catHtml=`<div>
