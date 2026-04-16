@@ -159,7 +159,7 @@ const DEFAULT_ACCOUNTS=[
 ];
 
 let accounts=[], entries=[], currentTab='dashboard', fv={};
-let histChart=null, dashLineChart=null, dashYearChart=null;
+let histChart=null, dashLineChart=null;
 let delEntryConfirm=false, archiveConfirm=null, permDelConfirm=null;
 let dashFilter='all', dashFromDate='', dashToDate='', selectedCat=null;
 let editingEntryIdx=null;
@@ -310,6 +310,60 @@ function getCatAccountRows(cat,fe){
   }).filter(r=>r.first>0||r.last>0);
 }
 
+let dashMoMChart=null, dashPieChart=null;
+
+function getMoMData(){
+  if(entries.length<2) return [];
+
+  // Build a map of date -> net worth for all actual entries
+  const actual={};
+  entries.forEach(e=>{ actual[e.date]=sumE(e); });
+  const sortedDates=Object.keys(actual).sort();
+
+  // Determine range: first month to last month
+  const firstDate=new Date(sortedDates[0]);
+  const lastDate=new Date(sortedDates[sortedDates.length-1]);
+
+  // Helper: get interpolated value for any date
+  function interpolate(targetDateStr){
+    if(actual[targetDateStr]!=null) return actual[targetDateStr];
+    // find surrounding entries
+    let before=null,after=null;
+    for(let i=0;i<sortedDates.length;i++){
+      if(sortedDates[i]<=targetDateStr) before=sortedDates[i];
+      else if(after===null) after=sortedDates[i];
+    }
+    if(!before) return actual[after];
+    if(!after)  return actual[before];
+    // linear interpolation between before and after
+    const t0=new Date(before).getTime(),t1=new Date(after).getTime(),t=new Date(targetDateStr).getTime();
+    const frac=(t-t0)/(t1-t0);
+    return actual[before]+(actual[after]-actual[before])*frac;
+  }
+
+  // Walk month by month
+  const result=[];
+  let y=firstDate.getFullYear(), m=firstDate.getMonth();
+  const endY=lastDate.getFullYear(), endM=lastDate.getMonth();
+
+  let prevVal=null;
+  while(y<endY||(y===endY&&m<=endM)){
+    const pad=n=>String(n).padStart(2,'0');
+    const label=`${y}-${pad(m+1)}`;
+    const dateStr=`${y}-${pad(m+1)}-15`; // mid-month sample point
+    const val=interpolate(dateStr);
+    if(prevVal!==null&&val!=null){
+      const diff=val-prevVal;
+      const pct=prevVal?Math.round(diff/prevVal*10000)/100:0;
+      result.push({label,diff:Math.round(diff),pct});
+    }
+    prevVal=val;
+    m++;
+    if(m>11){m=0;y++;}
+  }
+  return result;
+}
+
 function getYearlyData(){
   if(entries.length<2) return [];
   const byYear={};
@@ -322,6 +376,17 @@ function getYearlyData(){
     result.push({year:years[i],pct,diff:cv-pv});
   }
   return result;
+}
+
+function getCatPieData(){
+  if(!entries.length) return [];
+  const last=entries[entries.length-1];
+  const total=sumE(last);
+  if(!total) return [];
+  return getCats().map(cat=>{
+    const val=activeAccounts().filter(a=>a.cat===cat).reduce((s,a)=>s+(last.values[a.name]||0),0);
+    return {cat,val,pct:total?Math.round(val/total*1000)/10:0};
+  }).filter(d=>d.val>0).sort((a,b)=>b.val-a.val);
 }
 
 /* ─────────────────────────────────────────
@@ -414,8 +479,13 @@ function renderDash(){
     html+=`<div class="section-label" style="margin-top:24px">Net worth over time</div>
     ${filterUI()}
     <div class="chart-wrap" style="height:240px"><canvas id="dashLineChart" role="img" aria-label="Net worth over time">Net worth over time.</canvas></div>
-    <div class="section-label" style="margin-top:28px">Year-over-year change</div>
-    <div class="chart-wrap" style="height:200px"><canvas id="dashYearChart" role="img" aria-label="Yearly net worth change">Yearly change.</canvas></div>`;
+    <div class="section-label" style="margin-top:28px">Month-over-month change</div>
+    <div class="chart-wrap" style="height:220px"><canvas id="dashMoMChart" role="img" aria-label="Month over month net worth change">Monthly change.</canvas></div>
+    <div class="section-label" style="margin-top:28px">Allocation by category</div>
+    <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+      <div style="position:relative;width:180px;height:180px;flex-shrink:0"><canvas id="dashPieChart" role="img" aria-label="Category allocation pie chart">Category allocation.</canvas></div>
+      <div id="pie-legend" style="flex:1;min-width:140px"></div>
+    </div>`;
   }
 
   el.innerHTML=html;
@@ -496,16 +566,98 @@ function renderDashCharts(){
     });
   }
 
-  const yearCtx=$('dashYearChart');
-  if(yearCtx){
-    if(dashYearChart){dashYearChart.destroy();dashYearChart=null;}
-    const yd=getYearlyData();
-    if(yd.length){
-      dashYearChart=new Chart(yearCtx,{
+  // MoM bar chart
+  const momCtx=$('dashMoMChart');
+  if(momCtx){
+    if(dashMoMChart){dashMoMChart.destroy();dashMoMChart=null;}
+    const md=getMoMData();
+    if(md.length){
+      // Auto-skip labels to avoid crowding — show every Nth
+      const maxLabels=18;
+      const step=Math.ceil(md.length/maxLabels);
+      const displayLabels=md.map((d,i)=>i%step===0?d.label:'');
+      dashMoMChart=new Chart(momCtx,{
         type:'bar',
-        data:{labels:yd.map(d=>d.year),datasets:[{label:'% change',data:yd.map(d=>d.pct),backgroundColor:yd.map(d=>d.pct>=0?'rgba(29,158,117,0.75)':'rgba(162,45,45,0.75)'),borderColor:yd.map(d=>d.pct>=0?'#1D9E75':'#a32d2d'),borderWidth:1,borderRadius:4}]},
-        options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>{const d=yd[c.dataIndex];return `${c.raw>0?'+':''}${c.raw}%  (${fmtD(d.diff)})`;}}}},scales:{y:{ticks:{callback:v=>`${v>0?'+':''}${v}%`,font:{size:11},color:tickColor},grid:{color:gridColor},border:{dash:[3,3]}},x:{ticks:{font:{size:12},color:tickColor},grid:{display:false}}}}
+        data:{
+          labels:displayLabels,
+          datasets:[{
+            label:'$ change',
+            data:md.map(d=>d.diff),
+            backgroundColor:md.map(d=>d.diff>=0?'rgba(29,158,117,0.7)':'rgba(162,45,45,0.7)'),
+            borderColor:md.map(d=>d.diff>=0?'#1D9E75':'#a32d2d'),
+            borderWidth:1,
+            borderRadius:2
+          }]
+        },
+        options:{
+          responsive:true,maintainAspectRatio:false,
+          plugins:{
+            legend:{display:false},
+            tooltip:{callbacks:{
+              title:(_,[{dataIndex}])=>md[dataIndex].label,
+              label:c=>{
+                const d=md[c.dataIndex];
+                return [`${fmtD(d.diff)}`,`${d.pct>=0?'+':''}${d.pct}%`];
+              }
+            }}
+          },
+          scales:{
+            y:{
+              ticks:{callback:v=>v>=1e6?'$'+(v/1e6).toFixed(1)+'M':v>=1000?'$'+(v/1000).toFixed(0)+'k':'$'+v,font:{size:10},color:tickColor},
+              grid:{color:gridColor},
+              border:{dash:[3,3]}
+            },
+            x:{ticks:{font:{size:10},color:tickColor,maxRotation:45},grid:{display:false}}
+          }
+        }
       });
+    }
+  }
+
+  // Category pie chart
+  const pieCtx=$('dashPieChart');
+  if(pieCtx){
+    if(dashPieChart){dashPieChart.destroy();dashPieChart=null;}
+    const pd=getCatPieData();
+    if(pd.length){
+      const PIE_COLORS=['#1D9E75','#378ADD','#E24B4A','#EF9F27','#D4537E','#7F77DD','#639922','#BA7517','#1D9E75'];
+      dashPieChart=new Chart(pieCtx,{
+        type:'doughnut',
+        data:{
+          labels:pd.map(d=>d.cat),
+          datasets:[{
+            data:pd.map(d=>d.val),
+            backgroundColor:PIE_COLORS.slice(0,pd.length),
+            borderWidth:2,
+            borderColor:dark?'#1c1c1e':'#ffffff'
+          }]
+        },
+        options:{
+          responsive:true,maintainAspectRatio:false,
+          cutout:'58%',
+          plugins:{
+            legend:{display:false},
+            tooltip:{callbacks:{
+              label:c=>`${fmt(c.raw)}  (${pd[c.dataIndex].pct}%)`
+            }}
+          }
+        }
+      });
+      // Custom legend
+      const legend=$('pie-legend');
+      if(legend){
+        legend.innerHTML=pd.map((d,i)=>`
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:7px;gap:10px">
+            <div style="display:flex;align-items:center;gap:7px;min-width:0">
+              <span style="width:10px;height:10px;border-radius:2px;background:${PIE_COLORS[i]};flex-shrink:0"></span>
+              <span style="font-size:12px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(d.cat)}</span>
+            </div>
+            <div style="display:flex;gap:8px;flex-shrink:0;align-items:center">
+              <span style="font-size:11px;color:var(--text2);font-family:var(--mono)">${d.pct}%</span>
+              <span style="font-size:12px;font-family:var(--mono);color:var(--text)">${fmt(d.val)}</span>
+            </div>
+          </div>`).join('');
+      }
     }
   }
 }
