@@ -277,8 +277,8 @@ function filterUI_inline(){
 function setCustomFrom(v){dashFilter='custom';dashFromDate=v;renderDash();}
 function setCustomTo(v){dashFilter='custom';dashToDate=v;renderDash();}
 
-function toggleActual(){showActual=!showActual;renderDashCharts();}
-function toggleForecast(){showForecast=!showForecast;renderDashCharts();}
+function toggleActual(){showActual=!showActual;renderDash();}
+function toggleForecast(){showForecast=!showForecast;renderDash();}
 function setMomMode(m){momMode=m;renderDashCharts();}
 
 function getFilteredEntries(){
@@ -546,18 +546,20 @@ function renderDashCharts(){
     const bgAlpha=dark?'0.1':'0.07';
     const bg=isCat?`rgba(55,138,221,${bgAlpha})`:`rgba(29,158,117,${bgAlpha})`;
 
+    // For category drilldown, always show actual regardless of toggles
+    const showActualLine = isCat ? true : showActual;
     const forecast=(!isCat&&showForecast)?getForecastDatasets(fe,color):null;
     const hasForecast=forecast&&forecast.labels&&forecast.labels.length>1;
 
     // Build label set based on what's visible
     let allLabels;
-    if(showActual&&hasForecast) allLabels=[...new Set([...fe.map(e=>e.date),...forecast.labels])].sort();
-    else if(showActual)         allLabels=fe.map(e=>e.date);
-    else if(hasForecast)        allLabels=forecast.labels;
-    else                        allLabels=fe.map(e=>e.date);
+    if(showActualLine&&hasForecast) allLabels=[...new Set([...fe.map(e=>e.date),...forecast.labels])].sort();
+    else if(showActualLine)         allLabels=fe.map(e=>e.date);
+    else if(hasForecast)            allLabels=forecast.labels;
+    else                            allLabels=fe.map(e=>e.date);
 
     const datasets=[];
-    if(showActual){
+    if(showActualLine){
       const padded=allLabels.map(l=>{const idx=fe.findIndex(e=>e.date===l);return idx>=0?actualVals[idx]:null;});
       datasets.push({label:isCat?selectedCat:'Net worth',data:padded,borderColor:color,backgroundColor:bg,fill:true,tension:0.35,pointRadius:fe.length>20?2:4,pointBackgroundColor:color,borderWidth:2,spanGaps:false});
     }
@@ -567,14 +569,13 @@ function renderDashCharts(){
     }
 
     const yFmt=v=>v>=1e6?'$'+(v/1e6).toFixed(1)+'M':v>=1000?'$'+(v/1000).toFixed(0)+'k':'$'+v;
-    const showLegend=datasets.length>1;
     dashLineChart=new Chart(lineCtx,{
       type:'line',
       data:{labels:allLabels,datasets},
       options:{
         responsive:true,maintainAspectRatio:false,
         plugins:{
-          legend:{display:showLegend,labels:{boxWidth:10,font:{size:11},color:tickColor,usePointStyle:true}},
+          legend:{display:false},
           tooltip:{callbacks:{label:c=>c.raw!=null?`${c.dataset.label}: ${fmt(c.raw)}`:null,filter:i=>i.raw!=null}}
         },
         scales:{
