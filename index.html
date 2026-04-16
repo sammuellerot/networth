@@ -157,7 +157,9 @@ const DEFAULT_ACCOUNTS=[
 ];
 
 let accounts=[], entries=[], currentTab='dashboard', fv={};
-let histChart=null, delEntryConfirm=false, archiveConfirm=null, permDelConfirm=null;
+let histChart=null, dashLineChart=null, dashYearChart=null;
+let delEntryConfirm=false, archiveConfirm=null, permDelConfirm=null;
+let dashFilter='all'; // 'all','3y','1y','6m'
 
 const $=id=>document.getElementById(id);
 const fmt=n=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',minimumFractionDigits:0,maximumFractionDigits:0}).format(n||0);
@@ -273,12 +275,117 @@ function renderDash(){
     html+=`</div>`;
   }
 
+  // Net worth line chart
+  const filters=[['all','All time'],['3y','3Y'],['1y','1Y'],['6m','6M']];
+  html+=`<div class="section-label" style="margin-top:24px">Net worth over time</div>
+  <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">
+    ${filters.map(([f,l])=>`<button onclick="setDashFilter('${f}')" style="padding:4px 14px;font-size:12px;border-radius:6px;cursor:pointer;font-family:inherit;border:1px solid ${dashFilter===f?'#1D9E75':'var(--border2)'};background:${dashFilter===f?'#1D9E75':'transparent'};color:${dashFilter===f?'#fff':'var(--text2)'}">${l}</button>`).join('')}
+  </div>
+  <div class="chart-wrap" style="height:240px"><canvas id="dashLineChart" role="img" aria-label="Net worth over time">Net worth over time.</canvas></div>`;
+
+  // Yearly % change bar chart
+  html+=`<div class="section-label" style="margin-top:28px">Year-over-year change</div>
+  <div class="chart-wrap" style="height:200px"><canvas id="dashYearChart" role="img" aria-label="Year over year net worth change percentage">Yearly change.</canvas></div>`;
+
   el.innerHTML=html;
+  renderDashCharts();
 }
 
-/* ─────────────────────────────────────────
-   Enter values  (active accounts only)
-───────────────────────────────────────── */
+function setDashFilter(f){
+  dashFilter=f;
+  renderDash();
+}
+
+function getFilteredEntries(){
+  if(dashFilter==='all'||!entries.length) return entries;
+  const last=new Date(entries[entries.length-1].date);
+  const months={'6m':6,'1y':12,'3y':36}[dashFilter]||9999;
+  const cutoff=new Date(last);
+  cutoff.setMonth(cutoff.getMonth()-months);
+  return entries.filter(e=>new Date(e.date)>=cutoff);
+}
+
+function getYearlyData(){
+  if(entries.length<2) return [];
+  const byYear={};
+  entries.forEach(e=>{const y=e.date.slice(0,4); byYear[y]=e;});
+  const years=Object.keys(byYear).sort();
+  const result=[];
+  for(let i=1;i<years.length;i++){
+    const prev=sumE(byYear[years[i-1]]);
+    const curr=sumE(byYear[years[i]]);
+    const pct=prev?Math.round((curr-prev)/prev*1000)/10:0;
+    result.push({year:years[i],pct,diff:curr-prev});
+  }
+  return result;
+}
+
+function renderDashCharts(){
+  const dark=window.matchMedia('(prefers-color-scheme:dark)').matches;
+  const tickColor=dark?'#888':'#666';
+  const gridColor=dark?'rgba(255,255,255,0.07)':'rgba(0,0,0,0.07)';
+
+  // Line chart
+  const lineCtx=$('dashLineChart');
+  if(lineCtx){
+    if(dashLineChart){dashLineChart.destroy();dashLineChart=null;}
+    const fe=getFilteredEntries();
+    dashLineChart=new Chart(lineCtx,{
+      type:'line',
+      data:{
+        labels:fe.map(e=>e.date),
+        datasets:[{label:'Net worth',data:fe.map(sumE),borderColor:'#1D9E75',backgroundColor:dark?'rgba(29,158,117,0.1)':'rgba(29,158,117,0.07)',fill:true,tension:0.35,pointRadius:fe.length>20?2:4,pointBackgroundColor:'#1D9E75',borderWidth:2}]
+      },
+      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>fmt(c.raw)}}},scales:{y:{ticks:{callback:v=>v>=1e6?'$'+(v/1e6).toFixed(1)+'M':v>=1000?'$'+(v/1000).toFixed(0)+'k':'$'+v,font:{size:11},color:tickColor},grid:{color:gridColor}},x:{ticks:{font:{size:11},maxRotation:45,color:tickColor,autoSkip:true,maxTicksLimit:10},grid:{display:false}}}}
+    });
+  }
+
+  // Yearly bar chart
+  const yearCtx=$('dashYearChart');
+  if(yearCtx){
+    if(dashYearChart){dashYearChart.destroy();dashYearChart=null;}
+    const yd=getYearlyData();
+    if(yd.length){
+      dashYearChart=new Chart(yearCtx,{
+        type:'bar',
+        data:{
+          labels:yd.map(d=>d.year),
+          datasets:[{
+            label:'% change',
+            data:yd.map(d=>d.pct),
+            backgroundColor:yd.map(d=>d.pct>=0?'rgba(29,158,117,0.75)':'rgba(162,45,45,0.75)'),
+            borderColor:yd.map(d=>d.pct>=0?'#1D9E75':'#a32d2d'),
+            borderWidth:1,
+            borderRadius:4
+          }]
+        },
+        options:{
+          responsive:true,maintainAspectRatio:false,
+          plugins:{
+            legend:{display:false},
+            tooltip:{callbacks:{
+              label:c=>{
+                const d=yd[c.dataIndex];
+                return `${c.raw>0?'+':''}${c.raw}%  (${fmtD(d.diff)})`;
+              }
+            }}
+          },
+          scales:{
+            y:{
+              ticks:{callback:v=>`${v>0?'+':''}${v}%`,font:{size:11},color:tickColor},
+              grid:{color:gridColor},
+              border:{dash:[3,3]}
+            },
+            x:{ticks:{font:{size:12},color:tickColor},grid:{display:false}}
+          }
+        }
+      });
+    }
+  }
+}
+
+/* dummy to satisfy old call in renderHist — no longer used */
+function renderChart(){}
 function renderEnter(){
   if(!Object.keys(fv).length)initFV();
   const total=Object.values(fv).reduce((a,b)=>a+b,0);
@@ -311,8 +418,7 @@ function renderEnter(){
 function renderHist(){
   const el=$('pane-history');
   if(!entries.length){el.innerHTML=`<div class="empty"><p>No entries yet.</p></div>`;return;}
-  let html=`<div class="chart-wrap"><canvas id="histChart" role="img" aria-label="Net worth over time">Net worth over time.</canvas></div>
-  <div class="section-label">All entries</div><div class="list">`;
+  let html=`<div class="section-label">All entries</div><div class="list">`;
   [...entries].reverse().forEach((entry,i)=>{
     const idx=entries.length-1-i,prev=idx>0?entries[idx-1]:null;
     const total=sumE(entry),diff=prev?total-sumE(prev):null;
@@ -320,13 +426,6 @@ function renderHist(){
   });
   html+=`</div><div style="margin-top:12px;display:flex;justify-content:flex-end"><button class="danger" id="del-btn" onclick="delLast()">Delete last entry</button></div>`;
   el.innerHTML=html;
-  renderChart();
-}
-function renderChart(){
-  const ctx=$('histChart');if(!ctx)return;
-  if(histChart){histChart.destroy();histChart=null;}
-  const dark=window.matchMedia('(prefers-color-scheme:dark)').matches;
-  histChart=new Chart(ctx,{type:'line',data:{labels:entries.map(e=>e.date),datasets:[{label:'Net worth',data:entries.map(sumE),borderColor:'#1D9E75',backgroundColor:dark?'rgba(29,158,117,0.12)':'rgba(29,158,117,0.08)',fill:true,tension:0.35,pointRadius:4,pointBackgroundColor:'#1D9E75',borderWidth:2}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>fmt(c.raw)}}},scales:{y:{ticks:{callback:v=>v>=1e6?'$'+(v/1e6).toFixed(1)+'M':v>=1000?'$'+(v/1000).toFixed(0)+'k':'$'+v,font:{size:11},color:dark?'#888':'#666'},grid:{color:dark?'rgba(255,255,255,0.07)':'rgba(0,0,0,0.07)'}},x:{ticks:{font:{size:11},maxRotation:45,color:dark?'#888':'#666',autoSkip:true,maxTicksLimit:8},grid:{display:false}}}}});
 }
 
 /* ─────────────────────────────────────────
