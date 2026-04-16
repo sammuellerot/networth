@@ -100,7 +100,7 @@
 </head>
 <body>
 
-<h1>Net worth tracker</h1>
+<h1>Net Worth Tracker</h1>
 
 <div class="tabs">
   <button class="tab active" onclick="switchTab('dashboard')">Dashboard</button>
@@ -159,7 +159,7 @@ const DEFAULT_ACCOUNTS=[
 let accounts=[], entries=[], currentTab='dashboard', fv={};
 let histChart=null, dashLineChart=null, dashYearChart=null;
 let delEntryConfirm=false, archiveConfirm=null, permDelConfirm=null;
-let dashFilter='all'; // 'all','3y','1y','6m'
+let dashFilter='all', dashFromDate='', dashToDate='', selectedCat=null;
 
 const $=id=>document.getElementById(id);
 const fmt=n=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',minimumFractionDigits:0,maximumFractionDigits:0}).format(n||0);
@@ -223,6 +223,95 @@ function switchTab(t){
 }
 
 /* ─────────────────────────────────────────
+   Dashboard helpers
+───────────────────────────────────────── */
+function avgMonthlyChange3m(){
+  if(entries.length<2) return null;
+  const last=entries[entries.length-1];
+  const lastDate=new Date(last.date);
+  const cutoff=new Date(lastDate);
+  cutoff.setMonth(cutoff.getMonth()-3);
+  let closest=entries[0],minDiff=Infinity;
+  entries.forEach(e=>{const d=Math.abs(new Date(e.date)-cutoff);if(d<minDiff){minDiff=d;closest=e;}});
+  if(closest.date===last.date) return null;
+  const totalDiff=sumE(last)-sumE(closest);
+  const monthsDiff=(lastDate-new Date(closest.date))/(1000*60*60*24*30.44);
+  if(monthsDiff<0.5) return null;
+  return Math.round(totalDiff/monthsDiff);
+}
+
+function setDashFilter(f){
+  dashFilter=f;
+  if(f!=='custom'){dashFromDate='';dashToDate='';}
+  renderDash();
+}
+
+function setCustomDates(){
+  const f=$('dash-from'),t=$('dash-to');
+  if(!f||!t) return;
+  dashFilter='custom'; dashFromDate=f.value||''; dashToDate=t.value||'';
+  renderDash();
+}
+
+function getFilteredEntries(){
+  if(!entries.length) return entries;
+  if(dashFilter==='custom') return entries.filter(e=>(!dashFromDate||e.date>=dashFromDate)&&(!dashToDate||e.date<=dashToDate));
+  if(dashFilter==='all') return entries;
+  const last=new Date(entries[entries.length-1].date);
+  const months={'6m':6,'1y':12,'3y':36}[dashFilter]||9999;
+  const cutoff=new Date(last); cutoff.setMonth(cutoff.getMonth()-months);
+  const cs=cutoff.toISOString().split('T')[0];
+  return entries.filter(e=>e.date>=cs);
+}
+
+function filterUI(){
+  const fe=getFilteredEntries();
+  const fromVal=dashFilter==='custom'?dashFromDate:(fe.length?fe[0].date:'');
+  const toVal=dashFilter==='custom'?dashToDate:(fe.length?fe[fe.length-1].date:'');
+  const btns=[['all','All'],['3y','3Y'],['1y','1Y'],['6m','6M']];
+  return `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+    ${btns.map(([f,l])=>`<button onclick="setDashFilter('${f}')" style="padding:4px 12px;font-size:12px;border-radius:6px;cursor:pointer;font-family:inherit;border:1px solid ${dashFilter===f?'#1D9E75':'var(--border2)'};background:${dashFilter===f?'#1D9E75':'transparent'};color:${dashFilter===f?'#fff':'var(--text2)'}">${l}</button>`).join('')}
+    <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap">
+      <span style="font-size:12px;color:var(--text2)">From</span>
+      <input type="date" id="dash-from" value="${fromVal}" onchange="setCustomDates()" style="font-size:12px;padding:3px 8px"/>
+      <span style="font-size:12px;color:var(--text2)">to</span>
+      <input type="date" id="dash-to" value="${toVal}" onchange="setCustomDates()" style="font-size:12px;padding:3px 8px"/>
+    </div>
+  </div>`;
+}
+
+function selectCat(cat){selectedCat=cat;renderDash();}
+
+function getCatTimeSeries(cat,fe){
+  return fe.map(e=>activeAccounts().filter(a=>a.cat===cat).reduce((s,a)=>s+(e.values[a.name]||0),0));
+}
+
+function getCatAccountRows(cat,fe){
+  if(!fe.length) return [];
+  return activeAccounts().filter(a=>a.cat===cat).map(a=>{
+    let first=0,last=0;
+    for(let i=0;i<fe.length;i++){if((fe[i].values[a.name]||0)>0){first=fe[i].values[a.name];break;}}
+    for(let i=fe.length-1;i>=0;i--){if(fe[i].values[a.name]!=null){last=fe[i].values[a.name];break;}}
+    const chg=last-first,pct=first?(chg/first*100):(last?100:0);
+    return {name:a.name,first,last,chg,pct};
+  }).filter(r=>r.first>0||r.last>0);
+}
+
+function getYearlyData(){
+  if(entries.length<2) return [];
+  const byYear={};
+  entries.forEach(e=>{const y=e.date.slice(0,4);byYear[y]=e;});
+  const years=Object.keys(byYear).sort();
+  const result=[];
+  for(let i=1;i<years.length;i++){
+    const pv=sumE(byYear[years[i-1]]),cv=sumE(byYear[years[i]]);
+    const pct=pv?Math.round((cv-pv)/pv*1000)/10:0;
+    result.push({year:years[i],pct,diff:cv-pv});
+  }
+  return result;
+}
+
+/* ─────────────────────────────────────────
    Dashboard
 ───────────────────────────────────────── */
 function renderDash(){
@@ -236,111 +325,109 @@ function renderDash(){
   const liquidTotal=accounts.filter(a=>a.liquid&&!a.archived).reduce((s,a)=>s+(last.values[a.name]||0),0);
   const liquidPrev=prev?accounts.filter(a=>a.liquid&&!a.archived).reduce((s,a)=>s+(prev.values[a.name]||0),0):null;
   const liquidDiff=liquidPrev!==null?liquidTotal-liquidPrev:null;
+  const avgMo=avgMonthlyChange3m();
 
   let html=`<div class="cards">
-    <div class="card"><div class="card-label">Net worth</div><div class="card-value">${fmt(total)}</div></div>`;
-  if(diff!==null){
-    html+=`<div class="card"><div class="card-label">Since last entry</div><div class="card-value ${diff>=0?'green':'red'}">${fmtD(diff)}</div><div class="card-sub">${diff>=0?'+':''}${pct.toFixed(1)}%</div></div>`;
-  }else{
-    html+=`<div class="card"><div class="card-label">Entries</div><div class="card-value">${entries.length}</div></div>`;
-  }
-  html+=`<div class="card"><div class="card-label">Last updated</div><div class="card-value" style="font-size:14px;padding-top:4px">${last.date}</div><div class="card-sub" style="font-family:inherit">${entries.length} entr${entries.length===1?'y':'ies'}</div></div>
-  <div class="card"><div class="card-label">Liquid assets</div><div class="card-value" style="color:var(--green)">${fmt(liquidTotal)}</div>${liquidDiff!==null&&liquidDiff!==0?`<div class="card-sub ${liquidDiff>=0?'green':'red'}" style="color:${liquidDiff>=0?'var(--green)':'var(--red)'}">${fmtD(liquidDiff)}</div>`:''}</div>
+    <div class="card"><div class="card-label">Net worth</div><div class="card-value">${fmt(total)}</div></div>
+    ${diff!==null?`<div class="card"><div class="card-label">Since last entry</div><div class="card-value ${diff>=0?'green':'red'}">${fmtD(diff)}</div><div class="card-sub">${diff>=0?'+':''}${pct.toFixed(1)}%</div></div>`:`<div class="card"><div class="card-label">Entries</div><div class="card-value">${entries.length}</div></div>`}
+    <div class="card"><div class="card-label">Last updated</div><div class="card-value" style="font-size:14px;padding-top:4px">${last.date}</div><div class="card-sub" style="font-family:inherit">${entries.length} entr${entries.length===1?'y':'ies'}</div></div>
+    <div class="card"><div class="card-label">Liquid assets</div><div class="card-value" style="color:var(--green)">${fmt(liquidTotal)}</div>${liquidDiff!==null&&liquidDiff!==0?`<div class="card-sub" style="color:${liquidDiff>=0?'var(--green)':'var(--red)'}">${fmtD(liquidDiff)}</div>`:''}</div>
+    ${avgMo!==null?`<div class="card"><div class="card-label">Avg/month (3mo)</div><div class="card-value ${avgMo>=0?'green':'red'}">${fmtD(avgMo)}</div><div class="card-sub">3-month trailing</div></div>`:''}
   </div>`;
 
-  // Active category breakdown
-  html+=`<div class="section-label">By category</div><div class="list">`;
-  getCats().forEach(cat=>{
-    const accs=activeAccounts().filter(a=>a.cat===cat);
-    const val=accs.reduce((s,a)=>s+(last.values[a.name]||0),0);
-    const pval=prev?accs.reduce((s,a)=>s+(prev.values[a.name]||0),0):null;
-    const cd=pval!==null?val-pval:null;
-    html+=`<div class="list-row"><span style="font-size:13px">${esc(cat)}</span><div class="row-right">${cd!==null&&cd!==0?`<span class="row-diff ${cd>=0?'green':'red'}">${fmtD(cd)}</span>`:''}<span class="row-val">${fmt(val)}</span></div></div>`;
-  });
-  html+=`</div>`;
+  if(selectedCat!==null){
+    const fe=getFilteredEntries();
+    const rows=getCatAccountRows(selectedCat,fe);
+    const catCur=rows.reduce((s,r)=>s+r.last,0),catFirst=rows.reduce((s,r)=>s+r.first,0);
+    const catChg=catCur-catFirst,catPct=catFirst?(catChg/catFirst*100):0;
 
-  // Archived accounts — only show if any have non-zero value in latest entry
-  const archivedWithValue=archivedAccounts().filter(a=>(last.values[a.name]||0)>0);
-  if(archivedWithValue.length>0){
-    const archivedTotal=archivedWithValue.reduce((s,a)=>s+(last.values[a.name]||0),0);
-    const archivedPrevTotal=prev?archivedWithValue.reduce((s,a)=>s+(prev.values[a.name]||0),0):null;
-    const acd=archivedPrevTotal!==null?archivedTotal-archivedPrevTotal:null;
-    html+=`<div class="section-label">Archived accounts <span style="font-size:10px;font-weight:400;color:var(--text2)">(still in totals — not yet zeroed out)</span></div><div class="list">`;
-    archivedWithValue.forEach(a=>{
-      const val=last.values[a.name]||0;
-      const pval=prev?(prev.values[a.name]||0):null;
+    html+=`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+      <button onclick="selectCat(null)" style="padding:4px 12px;font-size:12px;border-radius:6px;cursor:pointer;font-family:inherit;border:1px solid var(--border2);background:transparent;color:var(--text2)">← All categories</button>
+      <span style="font-size:16px;font-weight:600">${esc(selectedCat)}</span>
+      ${catChg!==0?`<span style="font-size:13px;font-family:var(--mono);color:${catChg>=0?'var(--green)':'var(--red)'}">${fmtD(catChg)} (${catChg>=0?'+':''}${catPct.toFixed(1)}%)</span>`:''}
+    </div>
+    <div class="section-label" style="margin-top:0">${esc(selectedCat)} over time</div>
+    ${filterUI()}
+    <div class="chart-wrap" style="height:220px"><canvas id="dashLineChart" role="img" aria-label="${esc(selectedCat)} over time">${esc(selectedCat)} over time.</canvas></div>
+    <div class="section-label" style="margin-top:24px">Accounts in ${esc(selectedCat)}</div>
+    <div style="border:1px solid var(--border);border-radius:var(--radius);overflow:hidden">
+      <div style="display:grid;grid-template-columns:1fr repeat(3,auto);background:var(--bg2);padding:6px 14px;gap:12px">
+        <span style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em">Account</span>
+        <span style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;text-align:right">Current</span>
+        <span style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;text-align:right">Change $</span>
+        <span style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;text-align:right">Change %</span>
+      </div>
+      ${rows.map((r,i)=>`<div style="display:grid;grid-template-columns:1fr repeat(3,auto);padding:9px 14px;gap:12px;background:var(--bg);${i>0?'border-top:1px solid var(--border)':''}">
+        <span style="font-size:13px">${esc(r.name)}</span>
+        <span style="font-size:13px;font-family:var(--mono);text-align:right">${fmt(r.last)}</span>
+        <span style="font-size:13px;font-family:var(--mono);text-align:right;color:${r.chg===0?'var(--text2)':r.chg>0?'var(--green)':'var(--red)'}">${r.chg===0?'—':fmtD(r.chg)}</span>
+        <span style="font-size:13px;font-family:var(--mono);text-align:right;color:${r.chg===0?'var(--text2)':r.pct>0?'var(--green)':'var(--red)'}">${r.chg===0?'—':(r.pct>=0?'+':'')+r.pct.toFixed(1)+'%'}</span>
+      </div>`).join('')}
+    </div>`;
+
+  } else {
+    // Category breakdown — clickable rows with $ and % change
+    html+=`<div class="section-label">By category</div><div class="list">`;
+    getCats().forEach(cat=>{
+      const accs=activeAccounts().filter(a=>a.cat===cat);
+      const val=accs.reduce((s,a)=>s+(last.values[a.name]||0),0);
+      const pval=prev?accs.reduce((s,a)=>s+(prev.values[a.name]||0),0):null;
       const cd=pval!==null?val-pval:null;
-      html+=`<div class="list-row" style="opacity:.75"><span style="font-size:13px;color:var(--text2)">${esc(a.name)} <span class="badge badge-archived">archived</span></span><div class="row-right">${cd!==null&&cd!==0?`<span class="row-diff ${cd>=0?'green':'red'}">${fmtD(cd)}</span>`:''}<span class="row-val">${fmt(val)}</span></div></div>`;
+      const cpct=pval&&pval>0&&cd!==null?cd/pval*100:null;
+      const safeCat=cat.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+      html+=`<div class="list-row" onclick="selectCat('${safeCat}')" style="cursor:pointer" onmouseover="this.style.background='var(--bg2)'" onmouseout="this.style.background='var(--bg)'">
+        <span style="font-size:13px">${esc(cat)} <span style="font-size:11px;color:var(--text2)">›</span></span>
+        <div class="row-right">
+          ${cd!==null&&cd!==0?`<span class="row-diff ${cd>=0?'green':'red'}">${fmtD(cd)}</span>`:''}
+          ${cpct!==null&&cd!==0?`<span style="font-size:11px;font-family:var(--mono);color:${cd>=0?'var(--green)':'var(--red)'}">(${cd>=0?'+':''}${cpct.toFixed(1)}%)</span>`:''}
+          <span class="row-val">${fmt(val)}</span>
+        </div>
+      </div>`;
     });
     html+=`</div>`;
+
+    // Archived
+    const archivedWithValue=archivedAccounts().filter(a=>(last.values[a.name]||0)>0);
+    if(archivedWithValue.length>0){
+      html+=`<div class="section-label">Archived accounts <span style="font-size:10px;font-weight:400;color:var(--text2)">(still in totals)</span></div><div class="list">`;
+      archivedWithValue.forEach(a=>{
+        const val=last.values[a.name]||0,pval=prev?(prev.values[a.name]||0):null,cd=pval!==null?val-pval:null;
+        html+=`<div class="list-row" style="opacity:.75"><span style="font-size:13px;color:var(--text2)">${esc(a.name)} <span class="badge badge-archived">archived</span></span><div class="row-right">${cd!==null&&cd!==0?`<span class="row-diff ${cd>=0?'green':'red'}">${fmtD(cd)}</span>`:''}<span class="row-val">${fmt(val)}</span></div></div>`;
+      });
+      html+=`</div>`;
+    }
+
+    // Net worth line chart
+    html+=`<div class="section-label" style="margin-top:24px">Net worth over time</div>
+    ${filterUI()}
+    <div class="chart-wrap" style="height:240px"><canvas id="dashLineChart" role="img" aria-label="Net worth over time">Net worth over time.</canvas></div>
+    <div class="section-label" style="margin-top:28px">Year-over-year change</div>
+    <div class="chart-wrap" style="height:200px"><canvas id="dashYearChart" role="img" aria-label="Yearly net worth change">Yearly change.</canvas></div>`;
   }
-
-  // Net worth line chart
-  const filters=[['all','All time'],['3y','3Y'],['1y','1Y'],['6m','6M']];
-  html+=`<div class="section-label" style="margin-top:24px">Net worth over time</div>
-  <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">
-    ${filters.map(([f,l])=>`<button onclick="setDashFilter('${f}')" style="padding:4px 14px;font-size:12px;border-radius:6px;cursor:pointer;font-family:inherit;border:1px solid ${dashFilter===f?'#1D9E75':'var(--border2)'};background:${dashFilter===f?'#1D9E75':'transparent'};color:${dashFilter===f?'#fff':'var(--text2)'}">${l}</button>`).join('')}
-  </div>
-  <div class="chart-wrap" style="height:240px"><canvas id="dashLineChart" role="img" aria-label="Net worth over time">Net worth over time.</canvas></div>`;
-
-  // Yearly % change bar chart
-  html+=`<div class="section-label" style="margin-top:28px">Year-over-year change</div>
-  <div class="chart-wrap" style="height:200px"><canvas id="dashYearChart" role="img" aria-label="Year over year net worth change percentage">Yearly change.</canvas></div>`;
 
   el.innerHTML=html;
   renderDashCharts();
 }
 
-function setDashFilter(f){
-  dashFilter=f;
-  renderDash();
-}
-
-function getFilteredEntries(){
-  if(dashFilter==='all'||!entries.length) return entries;
-  const last=new Date(entries[entries.length-1].date);
-  const months={'6m':6,'1y':12,'3y':36}[dashFilter]||9999;
-  const cutoff=new Date(last);
-  cutoff.setMonth(cutoff.getMonth()-months);
-  return entries.filter(e=>new Date(e.date)>=cutoff);
-}
-
-function getYearlyData(){
-  if(entries.length<2) return [];
-  const byYear={};
-  entries.forEach(e=>{const y=e.date.slice(0,4); byYear[y]=e;});
-  const years=Object.keys(byYear).sort();
-  const result=[];
-  for(let i=1;i<years.length;i++){
-    const prev=sumE(byYear[years[i-1]]);
-    const curr=sumE(byYear[years[i]]);
-    const pct=prev?Math.round((curr-prev)/prev*1000)/10:0;
-    result.push({year:years[i],pct,diff:curr-prev});
-  }
-  return result;
-}
-
 function renderDashCharts(){
   const dark=window.matchMedia('(prefers-color-scheme:dark)').matches;
-  const tickColor=dark?'#888':'#666';
-  const gridColor=dark?'rgba(255,255,255,0.07)':'rgba(0,0,0,0.07)';
+  const tickColor=dark?'#888':'#666',gridColor=dark?'rgba(255,255,255,0.07)':'rgba(0,0,0,0.07)';
+  const fe=getFilteredEntries();
 
-  // Line chart
   const lineCtx=$('dashLineChart');
   if(lineCtx){
     if(dashLineChart){dashLineChart.destroy();dashLineChart=null;}
-    const fe=getFilteredEntries();
+    const data=selectedCat!==null?getCatTimeSeries(selectedCat,fe):fe.map(sumE);
+    const color=selectedCat!==null?'#378ADD':'#1D9E75';
+    const bgAlpha=dark?'0.1':'0.07';
+    const bg=selectedCat!==null?`rgba(55,138,221,${bgAlpha})`:`rgba(29,158,117,${bgAlpha})`;
     dashLineChart=new Chart(lineCtx,{
       type:'line',
-      data:{
-        labels:fe.map(e=>e.date),
-        datasets:[{label:'Net worth',data:fe.map(sumE),borderColor:'#1D9E75',backgroundColor:dark?'rgba(29,158,117,0.1)':'rgba(29,158,117,0.07)',fill:true,tension:0.35,pointRadius:fe.length>20?2:4,pointBackgroundColor:'#1D9E75',borderWidth:2}]
-      },
+      data:{labels:fe.map(e=>e.date),datasets:[{label:selectedCat||'Net worth',data,borderColor:color,backgroundColor:bg,fill:true,tension:0.35,pointRadius:fe.length>20?2:4,pointBackgroundColor:color,borderWidth:2}]},
       options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>fmt(c.raw)}}},scales:{y:{ticks:{callback:v=>v>=1e6?'$'+(v/1e6).toFixed(1)+'M':v>=1000?'$'+(v/1000).toFixed(0)+'k':'$'+v,font:{size:11},color:tickColor},grid:{color:gridColor}},x:{ticks:{font:{size:11},maxRotation:45,color:tickColor,autoSkip:true,maxTicksLimit:10},grid:{display:false}}}}
     });
   }
 
-  // Yearly bar chart
   const yearCtx=$('dashYearChart');
   if(yearCtx){
     if(dashYearChart){dashYearChart.destroy();dashYearChart=null;}
@@ -348,43 +435,13 @@ function renderDashCharts(){
     if(yd.length){
       dashYearChart=new Chart(yearCtx,{
         type:'bar',
-        data:{
-          labels:yd.map(d=>d.year),
-          datasets:[{
-            label:'% change',
-            data:yd.map(d=>d.pct),
-            backgroundColor:yd.map(d=>d.pct>=0?'rgba(29,158,117,0.75)':'rgba(162,45,45,0.75)'),
-            borderColor:yd.map(d=>d.pct>=0?'#1D9E75':'#a32d2d'),
-            borderWidth:1,
-            borderRadius:4
-          }]
-        },
-        options:{
-          responsive:true,maintainAspectRatio:false,
-          plugins:{
-            legend:{display:false},
-            tooltip:{callbacks:{
-              label:c=>{
-                const d=yd[c.dataIndex];
-                return `${c.raw>0?'+':''}${c.raw}%  (${fmtD(d.diff)})`;
-              }
-            }}
-          },
-          scales:{
-            y:{
-              ticks:{callback:v=>`${v>0?'+':''}${v}%`,font:{size:11},color:tickColor},
-              grid:{color:gridColor},
-              border:{dash:[3,3]}
-            },
-            x:{ticks:{font:{size:12},color:tickColor},grid:{display:false}}
-          }
-        }
+        data:{labels:yd.map(d=>d.year),datasets:[{label:'% change',data:yd.map(d=>d.pct),backgroundColor:yd.map(d=>d.pct>=0?'rgba(29,158,117,0.75)':'rgba(162,45,45,0.75)'),borderColor:yd.map(d=>d.pct>=0?'#1D9E75':'#a32d2d'),borderWidth:1,borderRadius:4}]},
+        options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>{const d=yd[c.dataIndex];return `${c.raw>0?'+':''}${c.raw}%  (${fmtD(d.diff)})`;}}}},scales:{y:{ticks:{callback:v=>`${v>0?'+':''}${v}%`,font:{size:11},color:tickColor},grid:{color:gridColor},border:{dash:[3,3]}},x:{ticks:{font:{size:12},color:tickColor},grid:{display:false}}}}
       });
     }
   }
 }
 
-/* dummy to satisfy old call in renderHist — no longer used */
 function renderChart(){}
 function renderEnter(){
   if(!Object.keys(fv).length)initFV();
