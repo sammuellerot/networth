@@ -313,22 +313,21 @@ function getCatAccountRows(cat,fe){
 
 let dashMoMChart=null, dashPieChart=null;
 
-function getMoMData(){
-  if(entries.length<2) return [];
+function getMoMData(filteredEntries){
+  const src=filteredEntries||entries;
+  if(src.length<2) return [];
 
-  // Build a map of date -> net worth for all actual entries
+  // Build a map of date -> net worth using only actual (non-forecast) entries
   const actual={};
-  entries.forEach(e=>{ actual[e.date]=sumE(e); });
+  src.forEach(e=>{ actual[e.date]=sumE(e); });
   const sortedDates=Object.keys(actual).sort();
 
-  // Determine range: first month to last month
+  // Range: from first to last actual entry in the filtered set — never future
   const firstDate=new Date(sortedDates[0]);
   const lastDate=new Date(sortedDates[sortedDates.length-1]);
 
-  // Helper: get interpolated value for any date
   function interpolate(targetDateStr){
     if(actual[targetDateStr]!=null) return actual[targetDateStr];
-    // find surrounding entries
     let before=null,after=null;
     for(let i=0;i<sortedDates.length;i++){
       if(sortedDates[i]<=targetDateStr) before=sortedDates[i];
@@ -336,22 +335,20 @@ function getMoMData(){
     }
     if(!before) return actual[after];
     if(!after)  return actual[before];
-    // linear interpolation between before and after
     const t0=new Date(before).getTime(),t1=new Date(after).getTime(),t=new Date(targetDateStr).getTime();
     const frac=(t-t0)/(t1-t0);
     return actual[before]+(actual[after]-actual[before])*frac;
   }
 
-  // Walk month by month
   const result=[];
   let y=firstDate.getFullYear(), m=firstDate.getMonth();
   const endY=lastDate.getFullYear(), endM=lastDate.getMonth();
-
   let prevVal=null;
+
   while(y<endY||(y===endY&&m<=endM)){
     const pad=n=>String(n).padStart(2,'0');
     const label=`${y}-${pad(m+1)}`;
-    const dateStr=`${y}-${pad(m+1)}-15`; // mid-month sample point
+    const dateStr=`${y}-${pad(m+1)}-15`;
     const val=interpolate(dateStr);
     if(prevVal!==null&&val!=null){
       const diff=val-prevVal;
@@ -359,8 +356,7 @@ function getMoMData(){
       result.push({label,diff:Math.round(diff),pct});
     }
     prevVal=val;
-    m++;
-    if(m>11){m=0;y++;}
+    m++; if(m>11){m=0;y++;}
   }
   return result;
 }
@@ -590,7 +586,8 @@ function renderDashCharts(){
   const momCtx=$('dashMoMChart');
   if(momCtx){
     if(dashMoMChart){dashMoMChart.destroy();dashMoMChart=null;}
-    const md=getMoMData();
+    // Use only actual filtered entries — never forecast dates
+    const md=getMoMData(fe);
     if(md.length){
       const usePct=momMode==='%';
       const vals=md.map(d=>usePct?d.pct:d.diff);
