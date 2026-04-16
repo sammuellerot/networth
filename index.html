@@ -26,7 +26,10 @@
   }
   html,body{scrollbar-width:none;-ms-overflow-style:none;}
   html::-webkit-scrollbar,body::-webkit-scrollbar{display:none;}
-  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);max-width:700px;margin:0 auto;padding:20px 16px 60px;}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);max-width:860px;margin:0 auto;padding:20px 20px 60px;}
+  .dash-top{display:grid;grid-template-columns:200px 1fr;gap:16px;margin-bottom:20px;align-items:start;}
+  .dash-top .cards{display:flex;flex-direction:column;gap:8px;margin-bottom:0;}
+  @media(max-width:600px){.dash-top{grid-template-columns:1fr;}.dash-top .cards{flex-direction:row;flex-wrap:wrap;}}
   h1{font-size:20px;font-weight:600;margin-bottom:16px;}
   .tabs{display:flex;border-bottom:1px solid var(--border);margin-bottom:20px;overflow-x:auto;}
   .tab{padding:8px 14px;font-size:13px;background:transparent;border:none;border-bottom:2px solid transparent;cursor:pointer;color:var(--text2);font-family:inherit;margin-bottom:-1px;white-space:nowrap;}
@@ -163,6 +166,7 @@ let histChart=null, dashLineChart=null;
 let delEntryConfirm=false, archiveConfirm=null, permDelConfirm=null;
 let dashFilter='all', dashFromDate='', dashToDate='', selectedCat=null;
 let editingEntryIdx=null;
+let showActual=true, showForecast=true, momMode='$'; // chart toggles
 
 const DEFAULT_SETTINGS={forecastYears:3,lookbackMonths:12,currentAge:'',goalAmount:''};
 let settings={...DEFAULT_SETTINGS};
@@ -259,12 +263,23 @@ function setDashFilter(f){
   renderDash();
 }
 
-function setCustomDates(){
-  const f=$('dash-from'),t=$('dash-to');
-  if(!f||!t) return;
-  dashFilter='custom'; dashFromDate=f.value||''; dashToDate=t.value||'';
-  renderDash();
+function filterUI_inline(){
+  const fe=getFilteredEntries();
+  const fromVal=dashFilter==='custom'?dashFromDate:(fe.length?fe[0].date:'');
+  const toVal=dashFilter==='custom'?dashToDate:(fe.length?fe[fe.length-1].date:'');
+  const btns=[['all','All'],['3y','3Y'],['1y','1Y'],['6m','6M']];
+  return btns.map(([f,l])=>`<button onclick="setDashFilter('${f}')" style="padding:3px 12px;font-size:11px;border-radius:20px;cursor:pointer;font-family:inherit;border:1px solid ${dashFilter===f?'#1D9E75':'var(--border2)'};background:${dashFilter===f?'#1D9E75':'transparent'};color:${dashFilter===f?'#fff':'var(--text2)'}">${l}</button>`).join('')
+    +`<input type="date" value="${fromVal}" onchange="setCustomFrom(this.value)" style="font-size:11px;padding:3px 7px;margin-left:4px"/>
+    <span style="font-size:11px;color:var(--text2)">–</span>
+    <input type="date" value="${toVal}" onchange="setCustomTo(this.value)" style="font-size:11px;padding:3px 7px;"/>`;
 }
+
+function setCustomFrom(v){dashFilter='custom';dashFromDate=v;renderDash();}
+function setCustomTo(v){dashFilter='custom';dashToDate=v;renderDash();}
+
+function toggleActual(){showActual=!showActual;renderDashCharts();}
+function toggleForecast(){showForecast=!showForecast;renderDashCharts();}
+function setMomMode(m){momMode=m;renderDashCharts();}
 
 function getFilteredEntries(){
   if(!entries.length) return entries;
@@ -277,21 +292,7 @@ function getFilteredEntries(){
   return entries.filter(e=>e.date>=cs);
 }
 
-function filterUI(){
-  const fe=getFilteredEntries();
-  const fromVal=dashFilter==='custom'?dashFromDate:(fe.length?fe[0].date:'');
-  const toVal=dashFilter==='custom'?dashToDate:(fe.length?fe[fe.length-1].date:'');
-  const btns=[['all','All'],['3y','3Y'],['1y','1Y'],['6m','6M']];
-  return `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
-    ${btns.map(([f,l])=>`<button onclick="setDashFilter('${f}')" style="padding:4px 12px;font-size:12px;border-radius:6px;cursor:pointer;font-family:inherit;border:1px solid ${dashFilter===f?'#1D9E75':'var(--border2)'};background:${dashFilter===f?'#1D9E75':'transparent'};color:${dashFilter===f?'#fff':'var(--text2)'}">${l}</button>`).join('')}
-    <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap">
-      <span style="font-size:12px;color:var(--text2)">From</span>
-      <input type="date" id="dash-from" value="${fromVal}" onchange="setCustomDates()" style="font-size:12px;padding:3px 8px"/>
-      <span style="font-size:12px;color:var(--text2)">to</span>
-      <input type="date" id="dash-to" value="${toVal}" onchange="setCustomDates()" style="font-size:12px;padding:3px 8px"/>
-    </div>
-  </div>`;
-}
+function filterUI(){return filterUI_inline();}
 
 function selectCat(cat){selectedCat=cat;renderDash();}
 
@@ -405,15 +406,81 @@ function renderDash(){
   const liquidDiff=liquidPrev!==null?liquidTotal-liquidPrev:null;
   const avgMo=avgMonthlyChange3m();
 
-  let html=`<div class="cards">
-    <div class="card"><div class="card-label">Net worth</div><div class="card-value">${fmt(total)}</div></div>
-    ${diff!==null?`<div class="card"><div class="card-label">Since last entry</div><div class="card-value ${diff>=0?'green':'red'}">${fmtD(diff)}</div><div class="card-sub">${diff>=0?'+':''}${pct.toFixed(1)}%</div></div>`:`<div class="card"><div class="card-label">Entries</div><div class="card-value">${entries.length}</div></div>`}
-    <div class="card"><div class="card-label">Last updated</div><div class="card-value" style="font-size:14px;padding-top:4px">${last.date}</div><div class="card-sub" style="font-family:inherit">${entries.length} entr${entries.length===1?'y':'ies'}</div></div>
-    <div class="card"><div class="card-label">Liquid assets</div><div class="card-value" style="color:var(--green)">${fmt(liquidTotal)}</div>${liquidDiff!==null&&liquidDiff!==0?`<div class="card-sub" style="color:${liquidDiff>=0?'var(--green)':'var(--red)'}">${fmtD(liquidDiff)}</div>`:''}</div>
-    ${avgMo!==null?`<div class="card"><div class="card-label">Avg/month (3mo)</div><div class="card-value ${avgMo>=0?'green':'red'}">${fmtD(avgMo)}</div><div class="card-sub">3-month trailing</div></div>`:''}
-  </div>`;
+  let html='';
 
-  if(selectedCat!==null){
+  if(selectedCat===null){
+    // ── Two-column top: cards left, by-category right ──
+    let cardsHtml=`<div class="cards">
+      <div class="card"><div class="card-label">Net worth</div><div class="card-value">${fmt(total)}</div></div>
+      ${diff!==null?`<div class="card"><div class="card-label">Since last entry</div><div class="card-value ${diff>=0?'green':'red'}">${fmtD(diff)}</div><div class="card-sub">${diff>=0?'+':''}${pct.toFixed(1)}%</div></div>`:`<div class="card"><div class="card-label">Entries</div><div class="card-value">${entries.length}</div></div>`}
+      <div class="card"><div class="card-label">Last updated</div><div class="card-value" style="font-size:13px;padding-top:4px">${last.date}</div><div class="card-sub" style="font-family:inherit">${entries.length} entr${entries.length===1?'y':'ies'}</div></div>
+      <div class="card"><div class="card-label">Liquid assets</div><div class="card-value" style="color:var(--green)">${fmt(liquidTotal)}</div>${liquidDiff!==null&&liquidDiff!==0?`<div class="card-sub" style="color:${liquidDiff>=0?'var(--green)':'var(--red)'}">${fmtD(liquidDiff)}</div>`:''}</div>
+      ${avgMo!==null?`<div class="card"><div class="card-label">Avg/month (3mo)</div><div class="card-value ${avgMo>=0?'green':'red'}">${fmtD(avgMo)}</div><div class="card-sub">3-month trailing</div></div>`:''}
+    </div>`;
+
+    let catHtml=`<div>
+      <p class="section-label" style="margin-top:0;margin-bottom:7px">By category</p>
+      <div class="list">`;
+    getCats().forEach(cat=>{
+      const accs=activeAccounts().filter(a=>a.cat===cat);
+      const val=accs.reduce((s,a)=>s+(last.values[a.name]||0),0);
+      const pval=prev?accs.reduce((s,a)=>s+(prev.values[a.name]||0),0):null;
+      const cd=pval!==null?val-pval:null;
+      const cpct=pval&&pval>0&&cd!==null?cd/pval*100:null;
+      const safeCat=cat.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+      catHtml+=`<div class="list-row" onclick="selectCat('${safeCat}')" style="cursor:pointer;padding:8px 12px" onmouseover="this.style.background='var(--bg2)'" onmouseout="this.style.background='var(--bg)'">
+        <span style="font-size:12px">${esc(cat)} <span style="font-size:10px;color:var(--text2)">›</span></span>
+        <div class="row-right" style="gap:6px">
+          ${cd!==null&&cd!==0?`<span class="row-diff ${cd>=0?'green':'red'}" style="font-size:11px">${fmtD(cd)}</span>`:''}
+          ${cpct!==null&&cd!==0?`<span style="font-size:10px;font-family:var(--mono);color:${cd>=0?'var(--green)':'var(--red)'}">(${cd>=0?'+':''}${cpct.toFixed(1)}%)</span>`:''}
+          <span class="row-val" style="font-size:12px">${fmt(val)}</span>
+        </div>
+      </div>`;
+    });
+
+    // Archived with value
+    const archivedWithValue=archivedAccounts().filter(a=>(last.values[a.name]||0)>0);
+    if(archivedWithValue.length>0){
+      archivedWithValue.forEach(a=>{
+        const val=last.values[a.name]||0;
+        catHtml+=`<div class="list-row" style="opacity:.7;padding:8px 12px">
+          <span style="font-size:12px;color:var(--text2)">${esc(a.name)} <span class="badge badge-archived">archived</span></span>
+          <span class="row-val" style="font-size:12px">${fmt(val)}</span>
+        </div>`;
+      });
+    }
+    catHtml+=`</div></div>`;
+
+    html+=`<div class="dash-top">${cardsHtml}${catHtml}</div>`;
+
+    // ── Charts below ──
+    // Pill toggles for net worth chart
+    const pillBtn=(label,active,fn)=>`<button onclick="${fn}" style="padding:3px 12px;font-size:11px;border-radius:20px;cursor:pointer;font-family:inherit;border:1px solid ${active?'#1D9E75':'var(--border2)'};background:${active?'#1D9E75':'transparent'};color:${active?'#fff':'var(--text2)'};transition:all .15s">${label}</button>`;
+
+    html+=`<div class="section-label" style="margin-top:4px">Net worth over time</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+      ${filterUI_inline()}
+      <div style="margin-left:auto;display:flex;gap:5px">
+        ${pillBtn('Net worth',showActual,"toggleActual()")}
+        ${pillBtn('Forecast',showForecast,"toggleForecast()")}
+      </div>
+    </div>
+    <div class="chart-wrap" style="height:240px"><canvas id="dashLineChart" role="img" aria-label="Net worth over time">Net worth over time.</canvas></div>
+
+    <div class="section-label" style="margin-top:28px">Month-over-month change</div>
+    <div style="display:flex;gap:5px;margin-bottom:10px">
+      ${pillBtn('$',momMode==='$',"setMomMode('$')")}
+      ${pillBtn('%',momMode==='%',"setMomMode('%')")}
+    </div>
+    <div class="chart-wrap" style="height:220px"><canvas id="dashMoMChart" role="img" aria-label="Month over month net worth change">Monthly change.</canvas></div>
+
+    <div class="section-label" style="margin-top:28px">Allocation by category</div>
+    <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+      <div style="position:relative;width:180px;height:180px;flex-shrink:0"><canvas id="dashPieChart" role="img" aria-label="Category allocation pie chart">Category allocation.</canvas></div>
+      <div id="pie-legend" style="flex:1;min-width:140px"></div>
+    </div>`;
+
+  } else {
     const fe=getFilteredEntries();
     const rows=getCatAccountRows(selectedCat,fe);
     const catCur=rows.reduce((s,r)=>s+r.last,0),catFirst=rows.reduce((s,r)=>s+r.first,0);
@@ -451,49 +518,6 @@ function renderDash(){
       </div>`).join('')}
     </div>`;
 
-  } else {
-    // Category breakdown — clickable rows with $ and % change
-    html+=`<div class="section-label">By category</div><div class="list">`;
-    getCats().forEach(cat=>{
-      const accs=activeAccounts().filter(a=>a.cat===cat);
-      const val=accs.reduce((s,a)=>s+(last.values[a.name]||0),0);
-      const pval=prev?accs.reduce((s,a)=>s+(prev.values[a.name]||0),0):null;
-      const cd=pval!==null?val-pval:null;
-      const cpct=pval&&pval>0&&cd!==null?cd/pval*100:null;
-      const safeCat=cat.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
-      html+=`<div class="list-row" onclick="selectCat('${safeCat}')" style="cursor:pointer" onmouseover="this.style.background='var(--bg2)'" onmouseout="this.style.background='var(--bg)'">
-        <span style="font-size:13px">${esc(cat)} <span style="font-size:11px;color:var(--text2)">›</span></span>
-        <div class="row-right">
-          ${cd!==null&&cd!==0?`<span class="row-diff ${cd>=0?'green':'red'}">${fmtD(cd)}</span>`:''}
-          ${cpct!==null&&cd!==0?`<span style="font-size:11px;font-family:var(--mono);color:${cd>=0?'var(--green)':'var(--red)'}">(${cd>=0?'+':''}${cpct.toFixed(1)}%)</span>`:''}
-          <span class="row-val">${fmt(val)}</span>
-        </div>
-      </div>`;
-    });
-    html+=`</div>`;
-
-    // Archived
-    const archivedWithValue=archivedAccounts().filter(a=>(last.values[a.name]||0)>0);
-    if(archivedWithValue.length>0){
-      html+=`<div class="section-label">Archived accounts <span style="font-size:10px;font-weight:400;color:var(--text2)">(still in totals)</span></div><div class="list">`;
-      archivedWithValue.forEach(a=>{
-        const val=last.values[a.name]||0,pval=prev?(prev.values[a.name]||0):null,cd=pval!==null?val-pval:null;
-        html+=`<div class="list-row" style="opacity:.75"><span style="font-size:13px;color:var(--text2)">${esc(a.name)} <span class="badge badge-archived">archived</span></span><div class="row-right">${cd!==null&&cd!==0?`<span class="row-diff ${cd>=0?'green':'red'}">${fmtD(cd)}</span>`:''}<span class="row-val">${fmt(val)}</span></div></div>`;
-      });
-      html+=`</div>`;
-    }
-
-    // Net worth line chart
-    html+=`<div class="section-label" style="margin-top:24px">Net worth over time</div>
-    ${filterUI()}
-    <div class="chart-wrap" style="height:240px"><canvas id="dashLineChart" role="img" aria-label="Net worth over time">Net worth over time.</canvas></div>
-    <div class="section-label" style="margin-top:28px">Month-over-month change</div>
-    <div class="chart-wrap" style="height:220px"><canvas id="dashMoMChart" role="img" aria-label="Month over month net worth change">Monthly change.</canvas></div>
-    <div class="section-label" style="margin-top:28px">Allocation by category</div>
-    <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
-      <div style="position:relative;width:180px;height:180px;flex-shrink:0"><canvas id="dashPieChart" role="img" aria-label="Category allocation pie chart">Category allocation.</canvas></div>
-      <div id="pie-legend" style="flex:1;min-width:140px"></div>
-    </div>`;
   }
 
   el.innerHTML=html;
@@ -505,65 +529,52 @@ function renderDashCharts(){
   const tickColor=dark?'#888':'#666',gridColor=dark?'rgba(255,255,255,0.07)':'rgba(0,0,0,0.07)';
   const fe=getFilteredEntries();
 
+  // Update pill button states if they exist (without re-rendering whole dash)
+  document.querySelectorAll('[data-pill]').forEach(b=>{
+    const active=(b.dataset.pill==='actual'&&showActual)||(b.dataset.pill==='forecast'&&showForecast)||(b.dataset.pill===momMode);
+    b.style.background=active?'#1D9E75':'transparent';
+    b.style.color=active?'#fff':'var(--text2)';
+    b.style.borderColor=active?'#1D9E75':'var(--border2)';
+  });
+
   const lineCtx=$('dashLineChart');
   if(lineCtx){
     if(dashLineChart){dashLineChart.destroy();dashLineChart=null;}
     const isCat=selectedCat!==null;
-    const data=isCat?getCatTimeSeries(selectedCat,fe):fe.map(sumE);
+    const actualVals=isCat?getCatTimeSeries(selectedCat,fe):fe.map(sumE);
     const color=isCat?'#378ADD':'#1D9E75';
     const bgAlpha=dark?'0.1':'0.07';
     const bg=isCat?`rgba(55,138,221,${bgAlpha})`:`rgba(29,158,117,${bgAlpha})`;
 
-    // Build forecast
-    const forecast=getForecastDatasets(fe,color);
-    const hasForecst=forecast&&forecast.labels&&forecast.labels.length>1&&!isCat;
+    const forecast=(!isCat&&showForecast)?getForecastDatasets(fe,color):null;
+    const hasForecast=forecast&&forecast.labels&&forecast.labels.length>1;
 
-    // Merge actual + forecast labels (dedupe, sorted)
-    const allLabels=hasForecst
-      ? [...new Set([...fe.map(e=>e.date),...forecast.labels])].sort()
-      : fe.map(e=>e.date);
+    // Build label set based on what's visible
+    let allLabels;
+    if(showActual&&hasForecast) allLabels=[...new Set([...fe.map(e=>e.date),...forecast.labels])].sort();
+    else if(showActual)         allLabels=fe.map(e=>e.date);
+    else if(hasForecast)        allLabels=forecast.labels;
+    else                        allLabels=fe.map(e=>e.date);
 
-    // Pad actual data with nulls for forecast portion
-    const actualData=allLabels.map(l=>{
-      const idx=fe.findIndex(e=>e.date===l);
-      return idx>=0?data[idx]:null;
-    });
-
-    // Pad forecast data with nulls for actual portion
-    const forecastData=hasForecst?allLabels.map(l=>{
-      const idx=forecast.labels.indexOf(l);
-      return idx>=0?forecast.data[idx]:null;
-    }):[];
-
-    const datasets=[{
-      label:isCat?selectedCat:'Net worth',
-      data:actualData,
-      borderColor:color,
-      backgroundColor:bg,
-      fill:true,
-      tension:0.35,
-      pointRadius:fe.length>20?2:4,
-      pointBackgroundColor:color,
-      borderWidth:2,
-      spanGaps:false
-    }];
-
-    if(hasForecst){
-      datasets.push({
-        ...forecast.dataset,
-        data:forecastData,
-        spanGaps:false
-      });
+    const datasets=[];
+    if(showActual){
+      const padded=allLabels.map(l=>{const idx=fe.findIndex(e=>e.date===l);return idx>=0?actualVals[idx]:null;});
+      datasets.push({label:isCat?selectedCat:'Net worth',data:padded,borderColor:color,backgroundColor:bg,fill:true,tension:0.35,pointRadius:fe.length>20?2:4,pointBackgroundColor:color,borderWidth:2,spanGaps:false});
+    }
+    if(hasForecast){
+      const padded=allLabels.map(l=>{const idx=forecast.labels.indexOf(l);return idx>=0?forecast.data[idx]:null;});
+      datasets.push({...forecast.dataset,data:padded,spanGaps:false});
     }
 
     const yFmt=v=>v>=1e6?'$'+(v/1e6).toFixed(1)+'M':v>=1000?'$'+(v/1000).toFixed(0)+'k':'$'+v;
+    const showLegend=datasets.length>1;
     dashLineChart=new Chart(lineCtx,{
       type:'line',
       data:{labels:allLabels,datasets},
       options:{
         responsive:true,maintainAspectRatio:false,
         plugins:{
-          legend:{display:hasForecst,labels:{boxWidth:12,font:{size:11},color:tickColor,usePointStyle:true}},
+          legend:{display:showLegend,labels:{boxWidth:10,font:{size:11},color:tickColor,usePointStyle:true}},
           tooltip:{callbacks:{label:c=>c.raw!=null?`${c.dataset.label}: ${fmt(c.raw)}`:null,filter:i=>i.raw!=null}}
         },
         scales:{
@@ -580,21 +591,21 @@ function renderDashCharts(){
     if(dashMoMChart){dashMoMChart.destroy();dashMoMChart=null;}
     const md=getMoMData();
     if(md.length){
-      // Auto-skip labels to avoid crowding — show every Nth
-      const maxLabels=18;
-      const step=Math.ceil(md.length/maxLabels);
+      const usePct=momMode==='%';
+      const vals=md.map(d=>usePct?d.pct:d.diff);
+      const maxLabels=18, step=Math.ceil(md.length/maxLabels);
       const displayLabels=md.map((d,i)=>i%step===0?d.label:'');
+      const yFmtMoM=usePct?v=>`${v>0?'+':''}${v}%`:v=>v>=1e6?'$'+(v/1e6).toFixed(1)+'M':v>=1000?'$'+(v/1000).toFixed(0)+'k':'$'+v;
       dashMoMChart=new Chart(momCtx,{
         type:'bar',
         data:{
           labels:displayLabels,
           datasets:[{
-            label:'$ change',
-            data:md.map(d=>d.diff),
-            backgroundColor:md.map(d=>d.diff>=0?'rgba(29,158,117,0.7)':'rgba(162,45,45,0.7)'),
-            borderColor:md.map(d=>d.diff>=0?'#1D9E75':'#a32d2d'),
-            borderWidth:1,
-            borderRadius:2
+            label:usePct?'% change':'$ change',
+            data:vals,
+            backgroundColor:vals.map(v=>v>=0?'rgba(29,158,117,0.7)':'rgba(162,45,45,0.7)'),
+            borderColor:vals.map(v=>v>=0?'#1D9E75':'#a32d2d'),
+            borderWidth:1,borderRadius:2
           }]
         },
         options:{
@@ -603,18 +614,11 @@ function renderDashCharts(){
             legend:{display:false},
             tooltip:{callbacks:{
               title:(_,[{dataIndex}])=>md[dataIndex].label,
-              label:c=>{
-                const d=md[c.dataIndex];
-                return [`${fmtD(d.diff)}`,`${d.pct>=0?'+':''}${d.pct}%`];
-              }
+              label:c=>{const d=md[c.dataIndex];return usePct?[`${d.pct>=0?'+':''}${d.pct}%`,fmtD(d.diff)]:[fmtD(d.diff),`${d.pct>=0?'+':''}${d.pct}%`];}
             }}
           },
           scales:{
-            y:{
-              ticks:{callback:v=>v>=1e6?'$'+(v/1e6).toFixed(1)+'M':v>=1000?'$'+(v/1000).toFixed(0)+'k':'$'+v,font:{size:10},color:tickColor},
-              grid:{color:gridColor},
-              border:{dash:[3,3]}
-            },
+            y:{ticks:{callback:yFmtMoM,font:{size:10},color:tickColor},grid:{color:gridColor},border:{dash:[3,3]}},
             x:{ticks:{font:{size:10},color:tickColor,maxRotation:45},grid:{display:false}}
           }
         }
